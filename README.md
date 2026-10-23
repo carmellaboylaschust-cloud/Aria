@@ -1,5 +1,7 @@
 # Aria
 
+Aria is a Windows skin studio for Codex, featuring instant theme switching, animated wallpapers, Steam Workshop imports, background conversion, private collections, and prompt management—all in a playful, anime-inspired interface.
+
 把喜欢的风景，带进日常。
 
 Aria 是面向 Windows 11 的桌面皮肤工作室，基于 Codex Dream Skin 扩展了壁纸管理、即时换肤、Steam 创意工坊浏览和本地转换队列。海盐珊瑚配色搭配独立导航图形，让常用操作集中在一个窗口里。
