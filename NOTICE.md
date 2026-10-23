@@ -18,7 +18,7 @@ Aria 的新增界面、任务管理、隐私功能、文档和原创发布图形
 - WebView2：运行时和 SDK 由 Microsoft 提供，分发遵循 [Microsoft 的 WebView2 文档](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) 与下载包条款。
 - FFmpeg：各构建可能采用不同组件和授权组合；以所选构建附带的许可证、源码说明和 [FFmpeg 法律说明](https://ffmpeg.org/legal.html) 为准。构建安装包时应一并审阅对应分发义务。
 - Wallpaper Engine 与 Steam：使用者通过 Valve / Wallpaper Engine 的正式渠道安装和授权，项目内容遵循创意工坊条款及作者声明。
-- 呜哇小站与表情包仓鼠库：站点内容由各自维护者和创作者发布，访问、下载和分享请结合站点授权说明。
+- [呜哇小站](https://wuwa.games/)与[表情包仓鼠库](https://emoji.wuwa.games/)：站点内容由各自维护者和创作者发布，访问、下载和分享请结合站点授权说明。
 
 本仓库发布源码及原创示例素材。外部可执行文件、SDK 和运行时由安装者另行准备，许可证随其原始发行包保留。
 
