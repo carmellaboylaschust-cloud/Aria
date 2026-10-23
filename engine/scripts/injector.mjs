@@ -911,11 +911,12 @@ export async function ensureLocalVideo(session, payload) {
   try {
     for await (const chunk of createReadStream(media.path, { highWaterMark: 1024*1024 })) {
       hash.update(chunk);
-      const ok = await session.evaluate(`(() => {const u=window.__DREAM_VIDEO_UPLOAD__;if(u?.token!==${JSON.stringify(token)})return false;const b=atob(${JSON.stringify(chunk.toString('base64'))});const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);u.chunks.push(a);return true;})()`);
+      const ok = await session.evaluate(`(() => {const u=window.__DREAM_VIDEO_UPLOAD__;if(u?.token!==${JSON.stringify(token)}||window.__CODEX_DREAM_SKIN_STATE__?.mediaKey!==${JSON.stringify(key)})return false;const data=${JSON.stringify(chunk.toString('base64'))};let a;if(typeof Uint8Array.fromBase64==='function'){a=Uint8Array.fromBase64(data);}else{const b=atob(data);a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);}u.chunks.push(a);return true;})()`);
       if (!ok) throw new Error("Video upload was superseded");
     }
     if (hash.digest("hex") !== key) throw new Error("Video changed during transfer");
-    await session.evaluate(`(() => {const u=window.__DREAM_VIDEO_UPLOAD__,s=window.__CODEX_DREAM_SKIN_STATE__;if(u?.token!==${JSON.stringify(token)}||s?.mediaKey!==${JSON.stringify(key)})return false;const url=URL.createObjectURL(new Blob(u.chunks,{type:${JSON.stringify(media.mime)}}));delete window.__DREAM_VIDEO_UPLOAD__;s.setMediaUrl(url);return true;})()`);
+    const committed = await session.evaluate(`(() => {const u=window.__DREAM_VIDEO_UPLOAD__,s=window.__CODEX_DREAM_SKIN_STATE__;if(u?.token!==${JSON.stringify(token)}||s?.mediaKey!==${JSON.stringify(key)})return false;const url=URL.createObjectURL(new Blob(u.chunks,{type:${JSON.stringify(media.mime)}}));delete window.__DREAM_VIDEO_UPLOAD__;s.setMediaUrl(url);return true;})()`);
+    if (!committed) throw new Error("Video upload was superseded");
   } catch (error) {
     await session.evaluate(`if(window.__DREAM_VIDEO_UPLOAD__?.token===${JSON.stringify(token)})delete window.__DREAM_VIDEO_UPLOAD__`).catch(()=>{});
     throw error;

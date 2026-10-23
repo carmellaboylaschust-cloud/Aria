@@ -47,7 +47,13 @@ try{
   $null=Set-DreamSkinPaused -Paused $false -StateRoot $stateRoot
   # A picker in front can occlude Codex. Verify decoded skin and session identity without requiring foreground visibility.
   Add-AriaLaunchTiming 'theme-apply'
-  $check=Invoke-DreamSkinNative $node.Path @((Join-Path $PSScriptRoot 'fast-status.mjs'),$stateFile,$selected.Theme.id,'15000','--allow-hidden') -SeparateStderr
+  # Local videos are transferred before the first frame can decode. Budget for file size.
+  $readyTimeout=15000
+  if([IO.Path]::GetExtension($selected.ImagePath).ToLowerInvariant() -in @('.mp4','.webm')){
+   $videoBytes=(Get-Item -LiteralPath $selected.ImagePath).Length
+   $readyTimeout=[int][Math]::Min(180000,60000+[Math]::Ceiling($videoBytes/1MB)*250)
+  }
+  $check=Invoke-DreamSkinNative $node.Path @((Join-Path $PSScriptRoot 'fast-status.mjs'),$stateFile,$selected.Theme.id,[string]$readyTimeout,'--allow-hidden') -SeparateStderr
   Add-AriaLaunchTiming 'render-verification'
   if($check.ExitCode -ne 0){throw ('背景尚未切换成功：'+($check.ErrorOutput -join ' '))}
   if($ResultToken){Write-DreamSkinStartResult -StateRoot $stateRoot -Token $ResultToken -Outcome success -Category none -AppearanceRecovery not-needed}
