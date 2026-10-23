@@ -30,7 +30,7 @@ function Assert-AriaArchiveName {
  if($Name -cne 'manifest.json' -and $Name -cnotmatch '^(skins/[A-Za-z0-9_-]{1,100}/.+|settings/[A-Za-z0-9._-]+\.json)$'){throw '备份路径不属于皮肤或设置。'}
 }
 function Copy-AriaArchiveStream {
- param([IO.Stream]$InputStream,[IO.Stream]$OutputStream,[long]$Limit=268435456)
+ param([IO.Stream]$InputStream,[IO.Stream]$OutputStream,[long]$Limit=536870912)
  $hash=[Security.Cryptography.SHA256]::Create();$buffer=New-Object byte[] 65536;[long]$total=0
  try{
   while(($count=$InputStream.Read($buffer,0,$buffer.Length)) -gt 0){$total+=$count;if($total -gt $Limit){throw '备份单个文件超出允许的大小。'};$OutputStream.Write($buffer,0,$count);[void]$hash.TransformBlock($buffer,0,$count,$buffer,0)}
@@ -69,7 +69,7 @@ function Get-AriaBackupCatalog {
     Assert-DreamSkinNoReparseComponents $item.FullName
     if($item.PSIsContainer){$folders.Enqueue($item.FullName);continue}
     if($item.Extension.ToLowerInvariant() -notin @('.json','.css','.jpg','.jpeg','.png','.gif','.webp','.mp4','.webm')){continue}
-    if($item.Length -gt 256MB){throw '单个皮肤文件超过 256 MB，请先单独保留原文件。'}
+    if($item.Length -gt 512MB){throw '单个皮肤文件超过 512 MB，请先单独保留原文件。'}
     $relative=$item.FullName.Substring($entry.Path.TrimEnd('\').Length+1).Replace('\','/')
     $name='skins/'+$entry.Id+'/'+$relative;Assert-AriaArchiveName $name
     $files+=@([pscustomobject]@{path=$name;source=$item.FullName;text=$null;size=$item.Length});$total+=$item.Length
@@ -119,7 +119,7 @@ function Read-AriaArchiveManifest {
  param($Archive)
  if($Archive.Entries.Count -gt 3001){throw '备份文件数量超出限制。'}
  $seen=@{}
- foreach($entry in $Archive.Entries){Assert-AriaArchiveName $entry.FullName;if($seen.ContainsKey($entry.FullName)){throw '备份包含重复路径。'};$seen[$entry.FullName]=$true;if($entry.Length -lt 0 -or $entry.Length -gt 256MB){throw '备份单个文件超出限制。'}}
+ foreach($entry in $Archive.Entries){Assert-AriaArchiveName $entry.FullName;if($seen.ContainsKey($entry.FullName)){throw '备份包含重复路径。'};$seen[$entry.FullName]=$true;if($entry.Length -lt 0 -or $entry.Length -gt 512MB){throw '备份单个文件超出限制。'}}
  $entry=$Archive.GetEntry('manifest.json');if(-not $entry -or $entry.Length -gt 1MB){throw '未找到有效的 Aria 备份清单。'}
  $stream=$entry.Open();$memory=[IO.MemoryStream]::new()
  try{$null=Copy-AriaArchiveStream $stream $memory 1MB;$manifest=[Text.UTF8Encoding]::new($false,$true).GetString($memory.ToArray())|ConvertFrom-Json}finally{$stream.Dispose();$memory.Dispose()}
@@ -128,7 +128,7 @@ function Read-AriaArchiveManifest {
  $listed=@{};[long]$sum=0
  foreach($file in @($manifest.files)){
   Assert-AriaArchiveName ([string]$file.path)
-  if($file.path -ceq 'manifest.json' -or $listed.ContainsKey($file.path) -or $file.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $file.size -lt 0 -or $file.size -gt 256MB){throw '备份文件清单无效。'}
+  if($file.path -ceq 'manifest.json' -or $listed.ContainsKey($file.path) -or $file.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $file.size -lt 0 -or $file.size -gt 512MB){throw '备份文件清单无效。'}
   if($file.path.StartsWith('skins/',[StringComparison]::Ordinal) -and [IO.Path]::GetExtension([string]$file.path).ToLowerInvariant() -notin @('.json','.css','.jpg','.jpeg','.png','.gif','.webp','.mp4','.webm')){throw '备份包含不允许的皮肤文件格式。'}
   $listed[$file.path]=$true;$match=$Archive.GetEntry($file.path);if(-not $match -or $match.Length -ne $file.size){throw '备份文件大小与清单不符。'};$sum+=[long]$file.size
   if($file.path -cmatch '^skins/([^/]+)/' -and $Matches[1] -notin $ids){throw '备份包含未登记皮肤。'}
@@ -228,7 +228,7 @@ function Restore-AriaBackup {
    $p=Read-AriaRestoreSettings $stage 'playback-settings.json' $null
    if($p){if($p.schemaVersion -ne 1 -or $p.mode -notin @('normal','battery','static')){throw '备份播放策略无效。'};$optional['playback-settings.json']=$p}
    $p=Read-AriaRestoreSettings $stage 'import-policy.json' $null
-   if($p){if([int]$p.videoMaxMB -notin @(64,128,256) -or [int]$p.sceneMaxMB -notin @(128,256,512)){throw '备份导入规则无效。'};$optional['import-policy.json']=[pscustomobject]@{videoMaxMB=[int]$p.videoMaxMB;sceneMaxMB=[int]$p.sceneMaxMB;autoImportWorkshop=[bool]$p.autoImportWorkshop;recordSeconds=if([int]$p.recordSeconds -ge 10 -and [int]$p.recordSeconds -le 60){[int]$p.recordSeconds}else{20}}}
+   if($p){if([int]$p.videoMaxMB -notin @(64,128,256,512) -or [int]$p.sceneMaxMB -notin @(128,256,512,1024)){throw '备份导入规则无效。'};$optional['import-policy.json']=[pscustomobject]@{videoMaxMB=[int]$p.videoMaxMB;sceneMaxMB=[int]$p.sceneMaxMB;autoImportWorkshop=[bool]$p.autoImportWorkshop;recordSeconds=if([int]$p.recordSeconds -ge 10 -and [int]$p.recordSeconds -le 60){[int]$p.recordSeconds}else{20}}}
    $p=Read-AriaRestoreSettings $stage 'window-settings.json' $null
    if($p){if([int]$p.width -lt 1060 -or [int]$p.width -gt 4096 -or [int]$p.height -lt 760 -or [int]$p.height -gt 4096 -or $p.state -notin @('normal','maximized')){throw '备份窗口偏好无效。'};$optional['window-settings.json']=[pscustomobject]@{remember=[bool]$p.remember;width=[int]$p.width;height=[int]$p.height;state=[string]$p.state}}
   }

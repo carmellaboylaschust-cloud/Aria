@@ -11,7 +11,7 @@ function Get-DreamHubPolicy {
       if($saved.PSObject.Properties['autoImportWorkshop'] -and $saved.autoImportWorkshop -is [bool]){$defaults.autoImportWorkshop=$saved.autoImportWorkshop}
     }catch{}
   }
-  $defaults.videoMaxMB=[Math]::Max(16,[Math]::Min(256,$defaults.videoMaxMB))
+  $defaults.videoMaxMB=[Math]::Max(16,[Math]::Min(512,$defaults.videoMaxMB))
   $defaults.imageMaxMB=[Math]::Max(1,[Math]::Min(32,$defaults.imageMaxMB))
   $defaults.sceneMaxMB=[Math]::Max(16,[Math]::Min(1024,$defaults.sceneMaxMB))
   $defaults.recordSeconds=[Math]::Max(10,[Math]::Min(60,$defaults.recordSeconds))

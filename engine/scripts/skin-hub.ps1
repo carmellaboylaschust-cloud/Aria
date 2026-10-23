@@ -255,7 +255,7 @@ function Invoke-HubMessage {
       $path=Join-Path $script:DreamHubHome 'prompts.json';$prompts=@(Read-DreamHubJson $path @()|Where-Object {$_.id -cne $Request.promptId});Write-DreamHubJson $path @($prompts);$script:NextData=[DateTime]::MinValue;$answer.message='已移除自定义提示词'
     }
     'savePolicy' {
-      if([int]$Request.videoMaxMB -notin @(64,128,256) -or [int]$Request.sceneMaxMB -notin @(128,256,512)){throw '导入规则无效。'}
+      if([int]$Request.videoMaxMB -notin @(64,128,256,512) -or [int]$Request.sceneMaxMB -notin @(128,256,512,1024)){throw '导入规则无效。'}
       $policy=Get-DreamHubPolicy;$policy.videoMaxMB=[int]$Request.videoMaxMB;$policy.sceneMaxMB=[int]$Request.sceneMaxMB;$policy.autoImportWorkshop=[bool]$Request.autoImportWorkshop
       Write-DreamHubJson (Join-Path $script:DreamHubHome 'import-policy.json') $policy;$answer.message='导入规则已保存';$script:NextData=[DateTime]::MinValue
     }

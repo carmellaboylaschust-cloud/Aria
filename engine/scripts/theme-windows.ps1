@@ -323,9 +323,9 @@ function Assert-DreamSkinImageFile {
   }
   $length = (Get-Item -LiteralPath $fullPath -Force).Length
   if ($length -lt 1) { throw 'Theme image cannot be empty.' }
-  $limit = if ($extension -in @('.mp4', '.webm')) { 256MB } else { $script:DreamSkinMaxImageBytes }
+  $limit = if ($extension -in @('.mp4', '.webm')) { 512MB } else { $script:DreamSkinMaxImageBytes }
   if ($length -gt $limit) {
-    throw "背景文件过大：图片上限 10 MB，视频上限 256 MB。"
+    throw "背景文件过大：图片上限 10 MB，视频上限 512 MB。"
   }
   if (-not $SkipImageMetadata) {
     Get-DreamSkinValidatedImageMetadata -Path $fullPath

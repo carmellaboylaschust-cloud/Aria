@@ -3,12 +3,12 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {classifyImageDimensions} from './image-metadata.mjs';
 
-export const MAX_VIDEO_BYTES=256*1024*1024;
+export const MAX_VIDEO_BYTES=512*1024*1024;
 export async function readVideoMetadata(file) {
  const handle=await fs.open(file,'r');
  try {
   const stat=await handle.stat();
-  if(!stat.isFile()||stat.size<16||stat.size>MAX_VIDEO_BYTES) throw Error('视频须在 256 MB 以内');
+  if(!stat.isFile()||stat.size<16||stat.size>MAX_VIDEO_BYTES) throw Error('视频须在 512 MB 以内');
   const read=async(at,n)=>{const b=Buffer.alloc(n);const {bytesRead}=await handle.read(b,0,n,at);if(bytesRead!==n)throw Error('视频文件不完整');return b;};
   let dimensions=null;
   const ext=path.extname(file).toLowerCase();
