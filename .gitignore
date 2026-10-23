@@ -1,0 +1,23 @@
+# Runtime data and local development outputs
+.test-output/
+node_modules/
+runtime/
+payload/
+user-backgrounds/
+outputs/
+backups/
+*-profile/
+*.log
+*.dat
+*.exe
+*.dll
+*.pdb
+*.zip
+*.mp4
+*.webm
+*.gif
+*.webp
+.env*
+*.key
+*.pem
+__pycache__/

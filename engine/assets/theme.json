@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-aria-salt",
+  "name": "Sea Salt & Coral",
+  "brandSubtitle": "ARIA",
+  "tagline": "A little space for inspiration.",
+  "projectPrefix": "Select project · ",
+  "projectLabel": "◉  Select project",
+  "statusText": "ARIA",
+  "quote": "A MOMENT OF YOURS",
+  "image": "aria-salt.png",
+  "appearance": "light",
+  "art": {
+    "focusX": 0.76,
+    "focusY": 0.45,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  },
+  "colors": {
+    "background": "#CFEAF6",
+    "panel": "#F7FBFF",
+    "panelAlt": "#FBD9C9",
+    "accent": "#5878A6",
+    "accentAlt": "#A7C7E7",
+    "secondary": "#F4A7AE",
+    "highlight": "#A6D0C6",
+    "text": "#34465C",
+    "muted": "#657B96",
+    "line": "rgba(88,120,166,.22)"
+  },
+  "promoTitle": "Aria",
+  "promoSub": "Sea Salt & Coral",
+  "promoUrl": "https://github.com/carmellaboylaschust-cloud/Aria"
+}
