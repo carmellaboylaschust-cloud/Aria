@@ -1,4 +1,4 @@
-import {readPlaybackPolicy} from '../assets/playback-settings.mjs';
+import {readPlaybackPolicy,readVideoAudioEnabled} from '../assets/playback-settings.mjs';
 import fs from "node:fs/promises";
 import { readThemeTransparency, readThemeDisplayMode, themePreferencesPath } from "../assets/theme-preferences.mjs";
 import { constants as fsConstants } from "node:fs";
@@ -347,12 +347,12 @@ class CdpSession {
     });
   }
 
-  async evaluate(expression) {
+  async evaluate(expression, {userGesture=false} = {}) {
     const result = await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-      userGesture: false,
+      userGesture,
     });
     if (result.exceptionDetails) {
       const detail = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
@@ -920,6 +920,15 @@ export async function ensureLocalVideo(session, payload) {
   } catch (error) {
     await session.evaluate(`if(window.__DREAM_VIDEO_UPLOAD__?.token===${JSON.stringify(token)})delete window.__DREAM_VIDEO_UPLOAD__`).catch(()=>{});
     throw error;
+  }
+}
+
+export async function syncVideoAudio(sessions, enabled) {
+  let audible=false;
+  for(const session of sessions){
+    const allowed=enabled===true&&!audible;
+    const accepted=await session.evaluate(`(() => {const s=window.__CODEX_DREAM_SKIN_STATE__;if(!s?.mediaKey||typeof s.setAudioEnabled!=='function')return false;const enabled=${JSON.stringify(allowed)}&&!document.hidden;if(s.audioEnabled!==enabled)s.setAudioEnabled(enabled);return enabled;})()`,{userGesture:allowed}).catch(()=>false);
+    audible=audible||accepted===true;
   }
 }
 
@@ -1827,6 +1836,7 @@ async function runWatch(options) {
           });
         }
       }
+      await syncVideoAudio(sessions.values(), !paused && await readVideoAudioEnabled());
       await new Promise((resolve) => setTimeout(resolve, 1200));
     }
   } finally {

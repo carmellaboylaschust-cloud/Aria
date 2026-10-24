@@ -2,10 +2,13 @@
 const AriaPrivacyExtras=(()=>{
  let signature='',playbackSignature='';
  function render(){
+  const audio=state.playbackSettings?.audioEnabled===true;for(const id of ['videoAudio','settingsVideoAudio'])if(document.activeElement!==$(id))$(id).checked=audio;
   const playback=state.playbackSettings?.mode||'normal';if(playback!==playbackSignature){playbackSignature=playback;$('playbackMode').value=playback;}
   const value=state.privacySettings?.safeThemeId||'',next=JSON.stringify([state.themes.map(t=>[t.id,t.name]),value]);if(next===signature)return;signature=next;
   $('privacySafeTheme').innerHTML='<option value="">最近使用的普通皮肤</option>'+state.themes.map(t=>'<option value="'+esc(t.id)+'">'+esc(t.name)+'</option>').join('');$('privacySafeTheme').value=value;
  }
+ async function setAudio(input){const enabled=input.checked;for(const id of ['videoAudio','settingsVideoAudio'])$(id).disabled=true;try{const result=await act('saveVideoAudio',{enabled});if(result){state.playbackSettings={...state.playbackSettings,audioEnabled:enabled};}else input.checked=!enabled;}finally{for(const id of ['videoAudio','settingsVideoAudio'])$(id).disabled=false;render();}}
+ $('videoAudio').onchange=()=>setAudio($('videoAudio'));$('settingsVideoAudio').onchange=()=>setAudio($('settingsVideoAudio'));
  $('savePlaybackSettings').onclick=()=>act('savePlaybackSettings',{mode:$('playbackMode').value});
  $('privacyMode').onclick=()=>act('privacyMode');
  $('savePrivacySettings').onclick=()=>act('savePrivacySettings',{themeId:$('privacySafeTheme').value});

@@ -73,3 +73,5 @@ body{font-size:15px}button:hover{filter:none}nav button{font-size:14px;font-weig
 #privacyGate .muted{color:#ad8b9f;font-size:12px;margin:17px 0 0}
 #privacyGate .form-error{color:#ac4e72;text-align:left;margin:10px 0}
 #privacyGate::backdrop{background:rgba(70,52,76,.29)}
+
+#videoAudioRow[hidden]{display:none}.audio-toggle{gap:16px}.audio-toggle input[role="switch"]{appearance:none;width:44px;height:25px;min-width:44px;border:1px solid #bacbdf;border-radius:20px;background:#dbe4ef;position:relative;cursor:pointer;transition:background .18s}.audio-toggle input[role="switch"]::after{content:"";position:absolute;width:19px;height:19px;left:2px;top:2px;background:#fff;border-radius:50%;box-shadow:0 1px 4px #5878a633;transition:transform .18s}.audio-toggle input[role="switch"]:checked{background:#5878A6;border-color:#5878A6}.audio-toggle input[role="switch"]:checked::after{transform:translateX(19px)}.audio-toggle input[role="switch"]:focus-visible{outline:3px solid #f4a7ae;outline-offset:3px}

@@ -65,9 +65,9 @@ function acceptState(data){
 }
 function card(t,manage=false){
  const fav=state.favorites.includes(t.id),active=t.id===state.activeId;
- const art=t.thumbnail||t.url;
- const media=t.kind==='video'&&!t.thumbnail?'<video src="'+esc(art)+'" muted preload="metadata"></video>':'<img src="'+esc(art)+'" loading="lazy" alt="">';
- return '<button class="card '+(manage?'manage-card ':'')+(manage&&uninstallSelection.has(t.id)?'chosen':'')+'" data-theme="'+esc(t.id)+'" '+(manage?'aria-pressed="'+uninstallSelection.has(t.id)+'" ':'')+(manage&&active?'disabled aria-label="当前正在使用，请先切换背景"':'')+'><div class="card-cover">'+media+'<span class="tag">'+esc(t.kind==='video'?'视频 · 静音循环':t.kind==='gif'?'动图':'静态壁纸')+'</span><span class="heart">'+(manage?(active?'使用中':(uninstallSelection.has(t.id)?'✓':'○')):(fav?'♥':'♡'))+'</span></div><div class="card-info"><strong>'+esc(t.name)+'</strong><p><span>'+esc(t.sizeMB)+' MB · '+esc(t.dimensions||'本地收藏')+'</span><span class="'+(active?'active-tag':'')+'">'+(active?'✓ 正在陪伴':'预览 ↗')+'</span></p></div></button>';
+ const art=t.thumbnail||(t.kind==='video'?'media/video-placeholder.svg':t.url);
+ const media='<img src="'+esc(art)+'" loading="lazy" alt="">';
+ return '<button class="card '+(manage?'manage-card ':'')+(manage&&uninstallSelection.has(t.id)?'chosen':'')+'" data-theme="'+esc(t.id)+'" '+(manage?'aria-pressed="'+uninstallSelection.has(t.id)+'" ':'')+(manage&&active?'disabled aria-label="当前正在使用，请先切换背景"':'')+'><div class="card-cover">'+media+'<span class="tag">'+esc(t.kind==='video'?'视频 · 循环播放':t.kind==='gif'?'动图':'静态壁纸')+'</span><span class="heart">'+(manage?(active?'使用中':(uninstallSelection.has(t.id)?'✓':'○')):(fav?'♥':'♡'))+'</span></div><div class="card-info"><strong>'+esc(t.name)+'</strong><p><span>'+esc(t.sizeMB)+' MB · '+esc(t.dimensions||'本地收藏')+'</span><span class="'+(active?'active-tag':'')+'">'+(active?'✓ 正在陪伴':'预览 ↗')+'</span></p></div></button>';
 }
 function wireCards(container){container.querySelectorAll('[data-theme]').forEach(el=>el.onclick=()=>{if(container.id==='skinGrid'&&managing){const id=el.dataset.theme;if(id===state.activeId)return;uninstallSelection.has(id)?uninstallSelection.delete(id):uninstallSelection.add(id);renderLibrary();}else openPreview(el.dataset.theme);});}
 function libraryPool(){return filter==='hidden'?(state.hiddenUnlocked?state.hiddenThemes||[]:[]):state.themes;}
@@ -84,7 +84,7 @@ function renderLibrary(){
 function renderRecent(){const recent=[...state.themes].filter(t=>!t.id.startsWith('preset')).sort((a,b)=>(Date.parse(b.lastUsed)||0)-(Date.parse(a.lastUsed)||0)||(Date.parse(b.addedAt)||0)-(Date.parse(a.addedAt)||0)).slice(0,3);$('recentGrid').innerHTML=recent.map(t=>card(t,false)).join('');wireCards($('recentGrid'));}
 function renderCurrent(){
  const t=state.themes.find(x=>x.id===state.activeId);
- $('currentSkin').innerHTML=t?'<img src="'+esc(t.thumbnail||t.url)+'" alt=""><div><strong>'+esc(t.name)+'</strong></div>':'<div><strong>还没有选择皮肤</strong><p>去收藏里挑一张吧 ♡</p></div>';
+ $('currentSkin').innerHTML=t?'<img src="'+esc(t.thumbnail||(t.kind==='video'?'media/video-placeholder.svg':t.url))+'" alt=""><div><strong>'+esc(t.name)+'</strong></div>':'<div><strong>还没有选择皮肤</strong><p>去收藏里挑一张吧 ♡</p></div>';
 }
 $('manageSkins').onclick=()=>{managing=!managing;if(!managing)uninstallSelection.clear();renderLibrary();};
 $('selectVisible').onclick=()=>{const ids=[...$('skinGrid').querySelectorAll('[data-theme]:not(:disabled)')].map(b=>b.dataset.theme);const all=ids.length&&ids.every(id=>uninstallSelection.has(id));ids.forEach(id=>all?uninstallSelection.delete(id):uninstallSelection.add(id));renderLibrary();};
@@ -107,6 +107,7 @@ function openPreview(id){
  $('displayMode').value=selected.displayMode||'cover';
  $('resolutionHint').textContent=selected.dimensions?'原素材 '+selected.dimensions:'';
  $('previewName').textContent=selected.name;$('previewMedia').innerHTML=selected.kind==='video'?'<video src="'+esc(selected.url)+'" controls muted autoplay loop playsinline></video>':'<img src="'+esc(selected.url)+'" alt="">';
+ $('videoAudioRow').hidden=selected.kind!=='video';$('videoAudio').checked=state.playbackSettings?.audioEnabled===true;
  $('opacity').value=selected.opacity??30;$('opacityValue').textContent=(selected.opacity??30)+'%';
  $('recordSelected').hidden=!selected.sceneProject;$('favoriteSelected').textContent=state.favorites.includes(id)?'♥ 已收藏':'♡ 收藏';if(typeof AriaPrivacy!=='undefined')AriaPrivacy.previewControl();$('preview').showModal();
 }

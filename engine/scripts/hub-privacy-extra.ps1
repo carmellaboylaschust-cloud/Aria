@@ -53,9 +53,15 @@ function Update-AriaPrivacyMode {
 
 function Get-AriaPlaybackSettings {
  $value=Read-DreamHubJson (Join-Path $script:DreamHubHome 'playback-settings.json') $null
- return [pscustomobject]@{mode=if($value.mode -in @('normal','battery','static')){[string]$value.mode}else{'normal'}}
+ return [pscustomobject]@{mode=if($value.mode -in @('normal','battery','static')){[string]$value.mode}else{'normal'};audioEnabled=($value.audioEnabled -is [bool] -and $value.audioEnabled)}
+}
+function Save-AriaVideoAudio {
+ param([bool]$Enabled)
+ $settings=Get-AriaPlaybackSettings
+ Write-DreamHubJson (Join-Path $script:DreamHubHome 'playback-settings.json') @{schemaVersion=1;mode=$settings.mode;audioEnabled=$Enabled}
 }
 function Save-AriaPlaybackSettings {
  param([ValidateSet('normal','battery','static')][string]$Mode)
- Write-DreamHubJson (Join-Path $script:DreamHubHome 'playback-settings.json') @{schemaVersion=1;mode=$Mode}
+ $settings=Get-AriaPlaybackSettings
+ Write-DreamHubJson (Join-Path $script:DreamHubHome 'playback-settings.json') @{schemaVersion=1;mode=$Mode;audioEnabled=$settings.audioEnabled}
 }

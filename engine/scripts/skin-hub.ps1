@@ -212,6 +212,7 @@ function Invoke-HubMessage {
     }
     {$_ -in @('storageOverview','storageCleanup')} {Start-HubAction $Request;$background=$true}
     'openBackups' {Open-HubExternal (Get-AriaBackupRoot)}
+    'saveVideoAudio' {if($Request.enabled -isnot [bool]){throw '声音设置无效。'};Save-AriaVideoAudio -Enabled $Request.enabled;$script:NextData=[DateTime]::MinValue;$answer.message=if($Request.enabled){'桌面背景声音已开启'}else{'桌面背景已静音'}}
     'savePlaybackSettings' {Save-AriaPlaybackSettings -Mode ([string]$Request.mode);$script:NextData=[DateTime]::MinValue;$answer.message='播放策略已保存，当前背景会自动更新，无需重启'}
     'privacyMode' {$answer.message=Invoke-AriaPrivacyMode}
     'savePrivacySettings' {Save-AriaPrivacySettings -ThemeId ([string]$Request.themeId);$script:NextData=[DateTime]::MinValue;$answer.message='隐私模式背景已保存'}
@@ -374,6 +375,7 @@ $script:HubTimer.add_Tick({
     if($script:SteamLoading -and -not $script:SteamSlowShown -and ([DateTime]::UtcNow-$script:SteamLoadingAt).TotalSeconds -ge 15){
       $script:SteamSlowShown=$true;Send-SteamHealth 'Steam 响应较慢，仍在尝试连接。你可以重试、用浏览器打开，或先导入已下载壁纸。' $true
     }
+    if($script:HubReady -and ([DateTime]::UtcNow-$script:LastThumbCheck).TotalSeconds -ge 30 -and -not @($script:HubPending|Where-Object {$_.Action -eq 'prepare'}).Count){$script:LastThumbCheck=[DateTime]::UtcNow;Start-HubAction ([pscustomobject]@{id=0;action='prepare'})}
     if($script:HubReady -and [DateTime]::UtcNow -ge $script:NextData){
       $script:NextData=[DateTime]::UtcNow.AddSeconds(2)
       $data=Get-DreamHubData;$data|Add-Member -NotePropertyName playbackSettings -NotePropertyValue (Get-AriaPlaybackSettings) -Force;$data|Add-Member -NotePropertyName privacySettings -NotePropertyValue (Get-AriaPrivacySettings) -Force;$data|Add-Member -NotePropertyName desktopConnection -NotePropertyValue (Get-AriaDesktopConnection) -Force;$json=$data|ConvertTo-Json -Depth 14 -Compress

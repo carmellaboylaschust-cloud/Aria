@@ -155,12 +155,14 @@
   let mediaHost = null;
   let mediaElement = null;
   let playbackBattery=null,staticImageUrl='',freezePending=false,playbackDisposed=false,frozenDimensions=null;
+  let videoAudioEnabled=false;
+  const setAudioEnabled=enabled=>{videoAudioEnabled=enabled===true;applyPlaybackPolicy();return videoAudioEnabled;};
   const staticPlayback=()=>(isVideo||THEME.mediaAnimated===true)&&(THEME.playbackMode==='static'||(THEME.playbackMode==='battery'&&playbackBattery?.charging===false));
   const applyPlaybackPolicy=()=>{
     if(playbackDisposed||!mediaElement)return;
     const frozen=staticPlayback(),runtime=window[STATE_KEY];
     if(runtime?.installToken===installToken){runtime.playbackMode=THEME.playbackMode||'normal';runtime.staticPlayback=frozen;runtime.batteryAvailable=!!playbackBattery;}
-    if(isVideo){if(frozen||document.hidden)mediaElement.pause();else if(mediaUrl)mediaElement.play().catch(()=>{});return;}
+    if(isVideo){mediaElement.muted=!videoAudioEnabled||document.hidden||frozen;if(runtime?.installToken===installToken)runtime.audioEnabled=videoAudioEnabled;if(frozen||document.hidden)mediaElement.pause();else if(mediaUrl)mediaElement.play().catch(()=>{});return;}
     if(!frozen){
       if(staticImageUrl){const previousUrl=staticImageUrl;staticImageUrl='';frozenDimensions=null;ensureMediaLayer();URL.revokeObjectURL(previousUrl);}
       return;
@@ -1182,6 +1184,8 @@
     getMediaUrl: () => mediaUrl,
     mediaDecoded: false,
     setMediaUrl,
+    setAudioEnabled,
+    audioEnabled:false,
     installToken,
     styleMode,
     styleNode,

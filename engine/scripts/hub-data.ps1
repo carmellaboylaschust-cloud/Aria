@@ -73,7 +73,7 @@ function Get-DreamHubData {
         $script:DreamHubThemeCache[$entry.Id]=$cached
       }
       # A thumbnail may be produced asynchronously after the metadata is cached.
-      $thumbnail=Join-Path (Join-Path $script:DreamHubHome 'thumbnails') ($entry.Id+'.jpg');$cached.thumbnail=if(Test-Path -LiteralPath $thumbnail){ConvertTo-DreamHubMediaUrl $thumbnail}else{''}
+      $thumbnail=Join-Path (Join-Path $script:DreamHubHome 'thumbnails') ($entry.Id+'.jpg');$cached.thumbnail=if(Test-Path -LiteralPath $thumbnail){(ConvertTo-DreamHubMediaUrl $thumbnail)+'?v='+(Get-Item -LiteralPath $thumbnail).LastWriteTimeUtc.Ticks}else{''}
       $meta=Read-DreamHubJson (Join-Path (Join-Path $script:DreamHubHome 'thumbnails') ($entry.Id+'.json')) $null
       if($meta){$cached.dimensions=[string]$meta.width+' × '+[string]$meta.height;if($cached.kind -ne 'video'){$cached.kind=if($meta.animated){'gif'}else{'image'}}}
       $cached.opacity=Get-DreamSkinLocalOpacity $entry.Id
@@ -104,28 +104,7 @@ function Get-DreamHubData {
     activeId="$($active.id)";policy=(Get-DreamHubPolicy);freeGB=[Math]::Round(([IO.DriveInfo]::new('D:\')).AvailableFreeSpace/1GB,1)
   }
 }
-function Initialize-DreamHubThumbnails {
-  $root=Join-Path $script:DreamHubHome 'thumbnails';[void][IO.Directory]::CreateDirectory($root)
-  foreach($theme in @(Get-DreamSkinSavedThemes -SkipImageMetadata)){
-    try{
-      $loaded=Read-DreamSkinTheme $theme.Path -SkipImageMetadata
-      if($theme.Id -cnotmatch '^[a-zA-Z0-9_-]{1,100}$'){continue}
-      $metaPath=Join-Path $root ($theme.Id+'.json')
-      $existingMeta=Read-DreamHubJson $metaPath $null
-      if(-not $existingMeta -or ([IO.Path]::GetExtension($loaded.ImagePath) -notin @('.mp4','.webm') -and $null -eq $existingMeta.animated)){
-        $node=Get-DreamSkinNodeRuntime
-        $args=if([IO.Path]::GetExtension($loaded.ImagePath) -in @('.mp4','.webm')){@((Join-Path $PSScriptRoot 'video-metadata.mjs'),$loaded.ImagePath)}else{@((Join-Path $PSScriptRoot 'image-metadata.mjs'),'--check',$loaded.ImagePath)}
-        $check=Invoke-DreamSkinNative -FilePath $node.Path -ArgumentList $args -SeparateStderr
-        if($check.ExitCode -eq 0){$meta=($check.Output -join [Environment]::NewLine)|ConvertFrom-Json;Write-DreamHubJson $metaPath $meta}
-      }
-      $currentMeta=Read-DreamHubJson $metaPath $null
-      if([IO.Path]::GetExtension($loaded.ImagePath) -notin @('.mp4','.webm') -and -not $currentMeta.animated){continue}
-      $out=Join-Path $root ($theme.Id+'.jpg')
-      if(Test-Path -LiteralPath $out){continue}
-      $null=Invoke-DreamSkinNative -FilePath (Join-Path $script:DreamSceneTools 'bin\ffmpeg.exe') -ArgumentList @('-hide_banner','-loglevel','error','-nostdin','-y','-i',$loaded.ImagePath,'-frames:v','1','-vf','scale=640:-2','-threads','1',$out) -SeparateStderr
-    }catch{}
-  }
-}
+. (Join-Path $PSScriptRoot 'hub-thumbnails.ps1')
 
 
 function Move-DreamHubLegacyProfileWhenClosed {
