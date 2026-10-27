@@ -164,6 +164,6 @@ try{
       }
     }finally{Exit-DreamSceneMutex $guard}
     if($stop){break}
-    if($next){if($next.kind -eq 'workshop'){Invoke-DreamHubWorkshopImport $next}else{Invoke-SceneRecording $next};$idleSince=[DateTime]::UtcNow}else{Start-Sleep -Milliseconds 1500}
+    if($next){if($next.kind -eq 'workshop'){Invoke-DreamHubWorkshopImport $next}else{Invoke-SceneRecording $next};$idleSince=[DateTime]::UtcNow}else{Start-Sleep -Milliseconds 3000}
   }
 }finally{Exit-DreamSceneMutex $workerLock}

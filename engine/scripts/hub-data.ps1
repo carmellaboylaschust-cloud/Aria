@@ -58,6 +58,8 @@ function ConvertTo-DreamHubMediaUrl {
 }
 function Get-DreamHubData {
   $themes=@();$libraryMeta=Get-AriaLibraryMeta
+  # Read shared theme preferences once per snapshot, rather than twice per card.
+  $themePreferences=Read-DreamHubJson (Join-Path $script:DreamHubState 'theme-preferences.json') $null
   foreach($entry in @(Get-DreamSkinSavedThemes -SkipImageMetadata)){
     try{
       if($entry.Id -cnotmatch '^[a-zA-Z0-9_-]{1,100}$'){continue}
@@ -76,8 +78,12 @@ function Get-DreamHubData {
       $thumbnail=Join-Path (Join-Path $script:DreamHubHome 'thumbnails') ($entry.Id+'.jpg');$cached.thumbnail=if(Test-Path -LiteralPath $thumbnail){(ConvertTo-DreamHubMediaUrl $thumbnail)+'?v='+(Get-Item -LiteralPath $thumbnail).LastWriteTimeUtc.Ticks}else{''}
       $meta=Read-DreamHubJson (Join-Path (Join-Path $script:DreamHubHome 'thumbnails') ($entry.Id+'.json')) $null
       if($meta){$cached.dimensions=[string]$meta.width+' × '+[string]$meta.height;if($cached.kind -ne 'video'){$cached.kind=if($meta.animated){'gif'}else{'image'}}}
-      $cached.opacity=Get-DreamSkinLocalOpacity $entry.Id
-      $cached|Add-Member -NotePropertyName displayMode -NotePropertyValue (Get-DreamSkinDisplayMode $entry.Id) -Force
+      $preference=$null
+      if($themePreferences -and $themePreferences.themes){$property=$themePreferences.themes.PSObject.Properties[$entry.Id];if($property){$preference=$property.Value}}
+      $cached.opacity=$null
+      try{if($null -ne $preference.transparency){$cached.opacity=[int](100-$preference.transparency)}}catch{}
+      $mode=if($preference.displayMode -in @('cover','contain','native')){[string]$preference.displayMode}else{'cover'}
+      $cached|Add-Member -NotePropertyName displayMode -NotePropertyValue $mode -Force
       $custom=$libraryMeta.themes.PSObject.Properties[$entry.Id].Value
       $cached.name=if($custom.name){[string]$custom.name}else{$entry.Name}
       $cached|Add-Member -NotePropertyName group -NotePropertyValue ([string]$custom.group) -Force

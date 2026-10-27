@@ -92,14 +92,26 @@ function Get-AriaLaunchWorker {
  $script:AriaLaunchWorker=[Diagnostics.Process]::Start($info)
  return $script:AriaLaunchWorker
 }
+function Get-AriaSnapshotWorker {
+ if($script:AriaSnapshotWorker -and -not $script:AriaSnapshotWorker.HasExited){return $script:AriaSnapshotWorker}
+ if($script:AriaSnapshotWorker){$script:AriaSnapshotWorker.Dispose()}
+ $script:AriaSnapshotQueueToken=[guid]::NewGuid().ToString('N')
+ $info=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'))
+ $info.Arguments=ConvertTo-DreamSkinArgumentLine @('-NoProfile','-STA','-NonInteractive','-WindowStyle','Hidden','-ExecutionPolicy','RemoteSigned','-File',(Join-Path $PSScriptRoot 'hub-actions.ps1'),'-Worker','-WorkerType','snapshot','-OwnerPid',"$PID",'-OwnerStarted',(Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o'),'-QueueToken',$script:AriaSnapshotQueueToken)
+ $info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.WindowStyle='Hidden'
+ $script:AriaSnapshotWorker=[Diagnostics.Process]::Start($info)
+ return $script:AriaSnapshotWorker
+}
 function Start-HubAction {
  param($Request)
- $key=[guid]::NewGuid().ToString('N');$persistent=$Request.action -eq 'launch'
- if($persistent){$process=Get-AriaLaunchWorker;$key+='.'+$script:AriaLaunchQueueToken+'.launch'}
+ $key=[guid]::NewGuid().ToString('N');$persistent=$Request.action -in @('launch','snapshot')
+ if($Request.action -eq 'launch'){$process=Get-AriaLaunchWorker;$key+='.'+$script:AriaLaunchQueueToken+'.launch'}
+ elseif($Request.action -eq 'snapshot'){$process=Get-AriaSnapshotWorker;$key+='.'+$script:AriaSnapshotQueueToken+'.snapshot'}
  $inputFile=Join-Path $script:HubRequests ($key+'.request.json')
  $outputFile=Join-Path $script:HubRequests ($key+'.result.json')
  if($Request.action -in @('exportBackup','inspectBackup','restoreBackup')){$Request|Add-Member -NotePropertyName ariaAdminAccess -NotePropertyValue $script:AriaAdminToken -Force}
- $Request|Add-Member -NotePropertyName ariaHiddenAccess -NotePropertyValue $script:AriaHiddenToken -Force
+ if($Request.action -eq 'snapshot' -and $script:AriaHiddenToken){$Request|Add-Member -NotePropertyName ariaHiddenProtected -NotePropertyValue ([AriaPrivacyCrypto]::Protect($script:AriaHiddenToken)) -Force;$Request|Add-Member -NotePropertyName ariaHiddenAccess -NotePropertyValue '' -Force}
+ else{$Request|Add-Member -NotePropertyName ariaHiddenAccess -NotePropertyValue $script:AriaHiddenToken -Force}
  # Atomically publish a complete request before the warm worker can claim it.
  Write-DreamHubJson $inputFile $Request
  if(-not $persistent){
@@ -108,7 +120,7 @@ function Start-HubAction {
   $info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.WindowStyle='Hidden'
   $process=[Diagnostics.Process]::Start($info)
  }
- $script:HubPending.Add([pscustomobject]@{Process=$process;Persistent=$persistent;InputPath=$inputFile;Path=$outputFile;Action=$Request.action;Id=$Request.id;Started=[DateTime]::UtcNow})
+ $script:HubPending.Add([pscustomobject]@{Process=$process;Persistent=$persistent;InputPath=$inputFile;Path=$outputFile;Action=$Request.action;Id=$Request.id;Started=[DateTime]::UtcNow;SnapshotToken=if($Request.action -eq 'snapshot'){$script:AriaHiddenToken}else{''};Generation=$script:HubGeneration})
 }
 
 function Open-HubExternal {
@@ -138,6 +150,7 @@ function Show-DownloadedWallpapers {
 . (Join-Path $PSScriptRoot 'hub-privacy-extra.ps1')
 . (Join-Path $PSScriptRoot 'hub-backup.ps1')
 . (Join-Path $PSScriptRoot 'hub-job-notices.ps1')
+. (Join-Path $PSScriptRoot 'hub-snapshot-ui.ps1')
 function Invoke-HubMessage {
   param($Request)
   $answer=[ordered]@{id=$Request.id;ok=$true}
@@ -280,12 +293,13 @@ function Invoke-HubMessage {
     }
     'launch' {
       if($script:LaunchInFlight){throw '桌面端正在启动，请稍等。'}
-      $null=Get-DreamHubThemeById $Request.themeId;$script:LaunchInFlight=$true
+      $script:LaunchInFlight=$true
       Start-HubAction $Request;Send-HubMessage @{type='launchProgress';message='正在准备皮肤与桌面端，可以继续浏览。'}
     }
     {$_ -in @('record','importHero','cancelJob','retryJob','uninstallThemes','workshopBatch','saveLibraryMeta')} {Start-HubAction $Request;$background=$true}
     default {throw '未知操作。'}
   }
+  if($Request.action -notin @('ready','workshop','steamBounds','wuwa','wuwaBounds')){$script:HubGeneration++;$script:NextData=[DateTime]::MinValue}
   if(-not $background){Send-HubMessage $answer}
 }
 $script:HubView.add_CoreWebView2InitializationCompleted({
@@ -358,16 +372,18 @@ $script:HubTimer.add_Tick({
       if(Test-Path -LiteralPath $pending.Path){
         $result=Read-DreamHubJson $pending.Path $null
         if($result){
-          if(-not $result.ok -and $result.details){Write-HubLog ('Background action '+$pending.Action+': '+$result.details)}
+          if(-not $result.ok -and $result.details -and $pending.Action -ne 'snapshot'){Write-HubLog ('Background action '+$pending.Action+': '+$result.details)}
+          if($pending.Action -eq 'snapshot'){if($result.ok){try{Publish-AriaSnapshot -Result $result -Pending $pending}catch{Write-AriaSnapshotError $_.Exception.Message;$script:NextData=[DateTime]::MinValue}}else{Write-AriaSnapshotError ([string]$result.error)}}
           if($pending.Action -eq 'launch'){$script:LaunchInFlight=$false;Send-HubMessage @{type='launchDone';message=if($result.ok){$result.message}else{$result.error}}}
           elseif($pending.Id -gt 0){Send-HubMessage $result}
           elseif($pending.Action -eq 'importWuwaDownload'){Send-HubMessage @{type='notice';message=if($result.ok){$result.message}else{$result.error}}}
-          elseif(-not $result.ok){Send-HubMessage @{type='launchProgress';message=$result.error}}
-          $script:NextData=[DateTime]::MinValue
+          elseif(-not $result.ok -and $pending.Action -ne 'snapshot'){Send-HubMessage @{type='launchProgress';message=$result.error}}
+          if($pending.Action -ne 'snapshot'){$script:HubGeneration++;$script:NextData=[DateTime]::MinValue}
           [IO.File]::Delete($pending.Path);if(-not $pending.Persistent){$pending.Process.Dispose()};[void]$script:HubPending.Remove($pending)
         }
       }elseif($pending.Process.HasExited){
         $message='后台操作意外结束，请重试。'
+        if($pending.Action -eq 'snapshot'){Write-AriaSnapshotError 'Snapshot worker exited unexpectedly.'}
         if($pending.Action -eq 'launch'){$script:LaunchInFlight=$false;Send-HubMessage @{type='launchDone';message=$message}}elseif($pending.Id -gt 0){Send-HubMessage @{id=$pending.Id;ok=$false;error=$message}}
         if($pending.Persistent){if(Test-Path -LiteralPath $pending.InputPath){Assert-DreamSkinNoReparseComponents $pending.InputPath;[IO.File]::Delete($pending.InputPath)}}else{$pending.Process.Dispose()};[void]$script:HubPending.Remove($pending)
       }
@@ -377,11 +393,9 @@ $script:HubTimer.add_Tick({
     }
     if($script:HubReady -and ([DateTime]::UtcNow-$script:LastThumbCheck).TotalSeconds -ge 30 -and -not @($script:HubPending|Where-Object {$_.Action -eq 'prepare'}).Count){$script:LastThumbCheck=[DateTime]::UtcNow;Start-HubAction ([pscustomobject]@{id=0;action='prepare'})}
     if($script:HubReady -and [DateTime]::UtcNow -ge $script:NextData){
-      $script:NextData=[DateTime]::UtcNow.AddSeconds(2)
-      $data=Get-DreamHubData;$data|Add-Member -NotePropertyName playbackSettings -NotePropertyValue (Get-AriaPlaybackSettings) -Force;$data|Add-Member -NotePropertyName privacySettings -NotePropertyValue (Get-AriaPrivacySettings) -Force;$data|Add-Member -NotePropertyName desktopConnection -NotePropertyValue (Get-AriaDesktopConnection) -Force;$json=$data|ConvertTo-Json -Depth 14 -Compress
-      if($json -cne $script:LastData){$script:LastData=$json;Send-HubMessage @{type='state';data=$data}}
-      Update-AriaJobNotices -Jobs @($script:AriaRawJobsForNotices) -HiddenIds @(Get-AriaHiddenIds) -PublicIds @($data.themes.id)
-      if($TestMode){Write-DreamHubJson (Join-Path $script:HubCodeRoot 'outputs\host-status.json') @{ready=$true;steamStarted=$script:SteamStarted;steamLoading=$script:SteamLoading;steamWanted=$script:SteamWanted;themes=$data.themes.Count;jobs=$data.jobs.Count;url=$script:SteamUrl;steamMessage=$script:SteamHealthMessage;steamError=$script:SteamHealthError;dpi=[DreamHubDisplay]::GetDpiForWindow($script:HubForm.Handle);perMonitorV2=[DreamHubDisplay]::IsPerMonitorV2($script:HubForm.Handle);clientWidth=$script:HubView.ClientSize.Width;clientHeight=$script:HubView.ClientSize.Height;zoom=$script:HubView.ZoomFactor;wuwaStarted=$script:WuwaStarted;wuwaLoading=$script:WuwaLoading;wuwaWanted=$script:WuwaWanted;wuwaError=$script:WuwaHealthError;wuwaMessage=$script:WuwaHealthMessage;steamSubscriptionStatus=$script:SteamSubscriptionLast;steamSubscriptionIntent=([bool]$script:SteamSubscriptionIntent)}}
+      $busy=@($script:HubLatestData.jobs|Where-Object {$_.status -in @('queued','starting','recording','finalizing','waiting-download')}).Count -gt 0
+      $script:NextData=[DateTime]::UtcNow.AddSeconds($(if($busy){2}else{5}))
+      if(-not @($script:HubPending|Where-Object {$_.Action -eq 'snapshot'}).Count){Start-HubAction ([pscustomobject]@{id=0;action='snapshot'})}
     }
     if($TestMode){
       $path=Join-Path $script:HubCodeRoot 'outputs\host-test.json'
@@ -410,5 +424,5 @@ $script:HubTimer.add_Tick({
   }catch{Write-HubLog ($_|Out-String)}
 })
 $script:HubForm.add_Shown({$null=$script:HubView.EnsureCoreWebView2Async($null);$script:HubTimer.Start()})
-$script:HubForm.add_FormClosed({Lock-AriaHidden;Lock-AriaAdmin;$script:HubTimer.Stop();$script:WuwaView.Dispose();$script:SteamView.Dispose();$script:HubView.Dispose();foreach($pending in $script:HubPending){if(-not $pending.Persistent){$pending.Process.Dispose()}};if($script:AriaLaunchWorker){$script:AriaLaunchWorker.Dispose()}})
+$script:HubForm.add_FormClosed({Lock-AriaHidden;Lock-AriaAdmin;$script:HubTimer.Stop();$script:WuwaView.Dispose();$script:SteamView.Dispose();$script:HubView.Dispose();foreach($pending in $script:HubPending){if(-not $pending.Persistent){$pending.Process.Dispose()}};if($script:AriaLaunchWorker){$script:AriaLaunchWorker.Dispose()};if($script:AriaSnapshotWorker){$script:AriaSnapshotWorker.Dispose()}})
 try{[Windows.Forms.Application]::Run($script:HubForm)}catch{Write-HubLog ($_|Out-String);[void][Windows.Forms.MessageBox]::Show($_.Exception.Message,'Aria启动失败')}finally{if($script:OwnHubInstance){$script:HubInstance.ReleaseMutex()};$script:HubInstance.Dispose()}

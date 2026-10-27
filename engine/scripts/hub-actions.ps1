@@ -1,5 +1,5 @@
 ﻿
-param([string]$RequestPath,[string]$ResultPath,[switch]$Worker,[int]$OwnerPid,[string]$OwnerStarted,[ValidatePattern('^[a-f0-9]{32}$')][string]$QueueToken)
+param([string]$RequestPath,[string]$ResultPath,[switch]$Worker,[int]$OwnerPid,[string]$OwnerStarted,[ValidatePattern('^[a-f0-9]{32}$')][string]$QueueToken,[ValidateSet('launch','snapshot')][string]$WorkerType='launch')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common-windows.ps1')
 . (Join-Path $PSScriptRoot 'theme-windows.ps1')
@@ -14,10 +14,21 @@ $requests=Join-Path $script:DreamHubHome 'requests'
 if(-not(Test-DreamSkinPathWithin $RequestPath $requests) -or -not(Test-DreamSkinPathWithin $ResultPath $requests)){throw '请求路径无效。'}
 Assert-DreamSkinNoReparseComponents $RequestPath;Assert-DreamSkinNoReparseComponents $ResultPath
 $request=Read-DreamHubJson $RequestPath $null
-$script:AriaRequestHiddenToken=[string]$request.ariaHiddenAccess
+$script:AriaRequestHiddenToken=''
 $result=[ordered]@{id=$request.id;ok=$true}
 try{
+  $script:AriaRequestHiddenToken=if($request.ariaHiddenProtected){[AriaPrivacyCrypto]::Unprotect([string]$request.ariaHiddenProtected)}else{[string]$request.ariaHiddenAccess}
   switch($request.action){
+    'snapshot' {
+      $data=Get-DreamHubData
+      $data|Add-Member -NotePropertyName playbackSettings -NotePropertyValue (Get-AriaPlaybackSettings) -Force
+      $data|Add-Member -NotePropertyName privacySettings -NotePropertyValue (Get-AriaPrivacySettings) -Force
+      $data|Add-Member -NotePropertyName desktopConnection -NotePropertyValue (Get-AriaDesktopConnection) -Force
+      $hidden=@(Get-AriaHiddenIds);$publicIds=@($data.themes.id)
+      $completed=@($script:AriaRawJobsForNotices|Where-Object {$_.status -eq 'completed' -and -not $_.testOnly -and $_.themeId -and $_.themeId -notin $hidden -and $_.themeId -in $publicIds}|Select-Object id,status,testOnly,name,themeId)
+      $snapshot=[pscustomobject]@{data=$data;completedJobs=$completed}|ConvertTo-Json -Depth 16 -Compress
+      $result.protectedSnapshot=[AriaPrivacyCrypto]::Protect($snapshot)
+    }
     'prepare' {Initialize-DreamHubThumbnails}
     'exportBackup' {. (Join-Path $PSScriptRoot 'hub-backup.ps1');$password=if($request.protectedPassword){[AriaPrivacyCrypto]::Unprotect($request.protectedPassword)}else{''};try{$backup=Export-AriaBackup -Path $request.path -Scope $request.scope -Password $password -AdminToken $request.ariaAdminAccess;$result.message=$backup.message}finally{$password=''}}
     'inspectBackup' {. (Join-Path $PSScriptRoot 'hub-backup.ps1');$preview=Inspect-AriaBackup -Path $request.path -ProtectedPassword $request.protectedPassword -AdminToken $request.ariaAdminAccess;foreach($property in $preview.PSObject.Properties){$result[$property.Name]=$property.Value}}
@@ -92,16 +103,17 @@ try{Write-DreamHubJson $ResultPath $result}finally{if(Test-Path -LiteralPath $Re
 if(-not $Worker){Invoke-AriaActionRequest -RequestPath $RequestPath -ResultPath $ResultPath;exit 0}
 if($OwnerPid -le 0 -or -not $OwnerStarted -or -not $QueueToken){throw '后台连接缺少所属窗口信息。'}
 $queueRoot=Join-Path $script:DreamHubHome 'requests'
-$workerMutex=[Threading.Mutex]::new($false,('Local\Aria.LaunchWorker.'+$QueueToken));$workerOwns=$false
+if($WorkerType -eq 'snapshot'){. (Join-Path $PSScriptRoot 'hub-privacy-extra.ps1');. (Join-Path $PSScriptRoot 'hub-connection.ps1')}
+$workerMutex=[Threading.Mutex]::new($false,('Local\Aria.'+$WorkerType+'Worker.'+$QueueToken));$workerOwns=$false
 try{
  try{$workerOwns=$workerMutex.WaitOne(0)}catch [Threading.AbandonedMutexException]{$workerOwns=$true}
  if(-not $workerOwns){exit 0}
- try{$null=Get-DreamSkinNodeRuntime;$null=Get-DreamSkinRegisteredCodexInstalls}catch{}
+ if($WorkerType -eq 'launch'){try{$null=Get-DreamSkinNodeRuntime;$null=Get-DreamSkinRegisteredCodexInstalls}catch{}}
  while($true){
   $owner=$null
   try{$owner=[Diagnostics.Process]::GetProcessById($OwnerPid);if($owner.StartTime.ToUniversalTime().ToString('o') -cne $OwnerStarted){break}}catch{break}finally{if($owner){$owner.Dispose()}}
-  foreach($queueEntry in @(Get-ChildItem -LiteralPath $queueRoot -Filter ('*.'+$QueueToken+'.launch.request.json') -File|Sort-Object CreationTimeUtc)){
-   if($queueEntry.Name -cnotmatch ('^[a-f0-9]{32}\.'+[regex]::Escape($QueueToken)+'\.launch\.request\.json$')){continue}
+  foreach($queueEntry in @(Get-ChildItem -LiteralPath $queueRoot -Filter ('*.'+$QueueToken+'.'+$WorkerType+'.request.json') -File|Sort-Object CreationTimeUtc)){
+   if($queueEntry.Name -cnotmatch ('^[a-f0-9]{32}\.'+[regex]::Escape($QueueToken)+'\.'+$WorkerType+'\.request\.json$')){continue}
    $responsePath=$queueEntry.FullName.Replace('.request.json','.result.json')
    $claimed=$queueEntry.FullName.Replace('.request.json','.processing.json')
    try{Assert-DreamSkinNoReparseComponents $queueEntry.FullName;Assert-DreamSkinNoReparseComponents $claimed;[IO.File]::Move($queueEntry.FullName,$claimed)}catch{continue}
