@@ -151,12 +151,13 @@ function Show-DownloadedWallpapers {
 . (Join-Path $PSScriptRoot 'hub-backup.ps1')
 . (Join-Path $PSScriptRoot 'hub-job-notices.ps1')
 . (Join-Path $PSScriptRoot 'hub-snapshot-ui.ps1')
+. (Join-Path $PSScriptRoot 'hub-runtime-health.ps1')
 function Invoke-HubMessage {
   param($Request)
   $answer=[ordered]@{id=$Request.id;ok=$true}
   $background=$false
   switch($Request.action){
-    'ready' {Start-DreamHubDailyWorker;$script:HubReady=$true;$null=Get-AriaLaunchWorker;$script:LastData='';if((Get-DreamHubPolicy).autoImportWorkshop -or @(Get-DreamSceneJobs|Where-Object {$_.status -in @('queued','waiting-download')}).Count){Start-DreamSceneWorker};$script:NextData=[DateTime]::MinValue;Start-HubAction ([pscustomobject]@{id=0;action='prepare'})}
+    'ready' {Start-DreamHubDailyWorker;$script:HubReady=$true;$null=Get-AriaLaunchWorker;$script:LastData='';if((Get-DreamHubPolicy).autoImportWorkshop -or @(Get-DreamSceneJobs|Where-Object {$_.status -in @('queued','waiting-download')}).Count){Start-DreamSceneWorker};$script:NextData=[DateTime]::MinValue;$script:LastThumbCheck=[DateTime]::UtcNow;Start-HubAction ([pscustomobject]@{id=0;action='prepare'})}
     'workshop' {
       $script:SteamWanted=[bool]$Request.visible
       if($script:SteamWanted -and -not $script:SteamStarted){
@@ -296,7 +297,7 @@ function Invoke-HubMessage {
       $script:LaunchInFlight=$true
       Start-HubAction $Request;Send-HubMessage @{type='launchProgress';message='正在准备皮肤与桌面端，可以继续浏览。'}
     }
-    {$_ -in @('record','importHero','cancelJob','retryJob','uninstallThemes','workshopBatch','saveLibraryMeta')} {Start-HubAction $Request;$background=$true}
+    {$_ -in @('record','importHero','cancelJob','retryJob','uninstallThemes','workshopBatch','saveLibraryMeta','videoCover','resetVideoCover','queuePause','queuePriority')} {Start-HubAction $Request;$background=$true}
     default {throw '未知操作。'}
   }
   if($Request.action -notin @('ready','workshop','steamBounds','wuwa','wuwaBounds')){$script:HubGeneration++;$script:NextData=[DateTime]::MinValue}
@@ -369,6 +370,7 @@ $script:HubTimer.add_Tick({
     Update-AriaPrivacyMode
     if([DateTime]::UtcNow -ge $script:WindowSaveDue){$script:WindowSaveDue=[DateTime]::MaxValue;Save-DreamHubWindowSettings}
     foreach($pending in @($script:HubPending.ToArray())){
+      if(Reset-AriaStalledSnapshot $pending){continue}
       if(Test-Path -LiteralPath $pending.Path){
         $result=Read-DreamHubJson $pending.Path $null
         if($result){
@@ -379,6 +381,7 @@ $script:HubTimer.add_Tick({
           elseif($pending.Action -eq 'importWuwaDownload'){Send-HubMessage @{type='notice';message=if($result.ok){$result.message}else{$result.error}}}
           elseif(-not $result.ok -and $pending.Action -ne 'snapshot'){Send-HubMessage @{type='launchProgress';message=$result.error}}
           if($pending.Action -ne 'snapshot'){$script:HubGeneration++;$script:NextData=[DateTime]::MinValue}
+          if($result.ok -and $pending.Action -in @('addMedia','importHero','saveWuwaImage','importWuwaDownload','restoreBackup')){$script:LastThumbCheck=[DateTime]::MinValue}
           [IO.File]::Delete($pending.Path);if(-not $pending.Persistent){$pending.Process.Dispose()};[void]$script:HubPending.Remove($pending)
         }
       }elseif($pending.Process.HasExited){
@@ -391,10 +394,11 @@ $script:HubTimer.add_Tick({
     if($script:SteamLoading -and -not $script:SteamSlowShown -and ([DateTime]::UtcNow-$script:SteamLoadingAt).TotalSeconds -ge 15){
       $script:SteamSlowShown=$true;Send-SteamHealth 'Steam 响应较慢，仍在尝试连接。你可以重试、用浏览器打开，或先导入已下载壁纸。' $true
     }
-    if($script:HubReady -and ([DateTime]::UtcNow-$script:LastThumbCheck).TotalSeconds -ge 30 -and -not @($script:HubPending|Where-Object {$_.Action -eq 'prepare'}).Count){$script:LastThumbCheck=[DateTime]::UtcNow;Start-HubAction ([pscustomobject]@{id=0;action='prepare'})}
+    Update-AriaThumbnailSchedule
+    if($script:HubReady -and ([DateTime]::UtcNow-$script:LastThumbCheck).TotalSeconds -ge 300 -and -not @($script:HubPending|Where-Object {$_.Action -eq 'prepare'}).Count){$script:LastThumbCheck=[DateTime]::UtcNow;Start-HubAction ([pscustomobject]@{id=0;action='prepare'})}
     if($script:HubReady -and [DateTime]::UtcNow -ge $script:NextData){
       $busy=@($script:HubLatestData.jobs|Where-Object {$_.status -in @('queued','starting','recording','finalizing','waiting-download')}).Count -gt 0
-      $script:NextData=[DateTime]::UtcNow.AddSeconds($(if($busy){2}else{5}))
+      $script:NextData=[DateTime]::UtcNow.AddSeconds($(if($busy){2}elseif($script:HubForm.WindowState -eq 'Minimized'){15}else{5}))
       if(-not @($script:HubPending|Where-Object {$_.Action -eq 'snapshot'}).Count){Start-HubAction ([pscustomobject]@{id=0;action='snapshot'})}
     }
     if($TestMode){

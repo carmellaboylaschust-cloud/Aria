@@ -30,6 +30,10 @@ try{
       $result.protectedSnapshot=[AriaPrivacyCrypto]::Protect($snapshot)
     }
     'prepare' {Initialize-DreamHubThumbnails}
+    'videoCover' {$cover=Set-AriaVideoCover -ThemeId $request.themeId -Time ([double]$request.time);$result.message=$cover.message}
+    'resetVideoCover' {$cover=Set-AriaVideoCover -ThemeId $request.themeId -Reset;$result.message=$cover.message}
+    'queuePause' {if($request.paused -isnot [bool]){throw '队列设置无效。'};$null=Set-AriaQueuePaused -Paused $request.paused;$result.message=if($request.paused){'后续任务已暂停，当前任务会继续完成'}else{'队列已继续'};$result.queueSettings=Get-AriaVisibleQueueSettings}
+    'queuePriority' {$null=Set-AriaQueuePriority -Id ([string]$request.jobId);$result.message='已安排优先处理';$result.queueSettings=Get-AriaVisibleQueueSettings}
     'exportBackup' {. (Join-Path $PSScriptRoot 'hub-backup.ps1');$password=if($request.protectedPassword){[AriaPrivacyCrypto]::Unprotect($request.protectedPassword)}else{''};try{$backup=Export-AriaBackup -Path $request.path -Scope $request.scope -Password $password -AdminToken $request.ariaAdminAccess;$result.message=$backup.message}finally{$password=''}}
     'inspectBackup' {. (Join-Path $PSScriptRoot 'hub-backup.ps1');$preview=Inspect-AriaBackup -Path $request.path -ProtectedPassword $request.protectedPassword -AdminToken $request.ariaAdminAccess;foreach($property in $preview.PSObject.Properties){$result[$property.Name]=$property.Value}}
     'restoreBackup' {. (Join-Path $PSScriptRoot 'hub-backup.ps1');$backup=Restore-AriaBackup -PlanId $request.planId -ApplySettings:([bool]$request.applySettings) -AdminToken $request.ariaAdminAccess;$result.message=$backup.message}
@@ -38,7 +42,7 @@ try{
     'browseDownloaded' {$result.items=@(Get-AriaDownloadedWallpapers)}
     'saveWuwaImage' {. (Join-Path $PSScriptRoot 'hub-wuwa-media.ps1');$import=Save-AriaWuwaImage -Url $request.url -Title $request.title -SourcePage $request.sourcePage;$result.message=$import.message;$result.themeId=$import.themeId}
     'importWuwaDownload' {. (Join-Path $PSScriptRoot 'hub-wuwa-media.ps1');$import=Import-AriaWuwaDownload -Path $request.path -Title $request.title -SourcePage $request.sourcePage;$result.message=$import.message;$result.themeId=$import.themeId}
-    'saveLibraryMeta' {$libraryArgs=@{Ids=@($request.themeIds);Group=[string]$request.group;Tags=@($request.tags)};if($request.rename){if($libraryArgs.Ids.Count -ne 1){throw '请逐张修改皮肤名称。'};$libraryArgs.Name=[string]$request.name};Set-AriaLibraryMeta @libraryArgs;$result.message='皮肤资料已保存'}
+    'saveLibraryMeta' {$libraryArgs=@{Ids=@($request.themeIds)};if($request.PSObject.Properties['group']){$libraryArgs.Group=[string]$request.group};if($request.PSObject.Properties['tags']){$libraryArgs.Tags=@($request.tags)};if($request.rename){if($libraryArgs.Ids.Count -ne 1){throw '请逐张修改皮肤名称。'};$libraryArgs.Name=[string]$request.name};Set-AriaLibraryMeta @libraryArgs;$result.message='皮肤资料已保存'}
     'workshopBatch' {
       $ids=@($request.workshopIds|Select-Object -Unique);if(-not $ids.Count -or $ids.Count -gt 20){throw '每次可导入 1 至 20 张壁纸。'}
       $messages=@();$accepted=0
@@ -75,14 +79,28 @@ try{
       $result.message='已重新排队'
     }
     'launch' {
+      $previous=Get-AriaCurrentSkinSnapshot
+      $restore=$null
+      if($request.restorePrevious){$restore=Get-AriaPreviousSkin;if(-not $restore){throw '上一张皮肤暂时不可用，请从皮肤库选择。'};$request.themeId=$restore.id}
       $loaded=Get-DreamHubThemeById $request.themeId
       $prompt="$($request.prompt)"
       if($prompt.Length -gt 16000){throw '本次提示词过长。'}
       if($null -ne $request.sceneOpacity){Set-DreamSkinLocalOpacity -ThemeId $request.themeId -Opacity $request.sceneOpacity}
       $token=[guid]::NewGuid().ToString('N')
-      . (Join-Path $PSScriptRoot 'apply-or-start.ps1') -SavedThemeDirectory $loaded.Directory -ResultToken $token
-      $check=Read-DreamSkinStartResult -StateRoot $script:DreamHubState -Token $token
-      if($check.outcome -ne 'success'){throw ('桌面端未启动成功：'+$check.category)}
+      $originalOpacity=Get-DreamSkinLocalOpacity -ThemeId $request.themeId -StateRoot $script:DreamHubState
+      $originalMode=Get-DreamSkinDisplayMode -ThemeId $request.themeId -StateRoot $script:DreamHubState
+      $applied=$false
+      try{
+        if($restore){Set-DreamSkinLocalOpacity -ThemeId $restore.id -Opacity $restore.opacity -StateRoot $script:DreamHubState;Set-DreamSkinDisplayMode -ThemeId $restore.id -Mode $restore.displayMode -StateRoot $script:DreamHubState}
+        . (Join-Path $PSScriptRoot 'apply-or-start.ps1') -SavedThemeDirectory $loaded.Directory -ResultToken $token
+        $check=Read-DreamSkinStartResult -StateRoot $script:DreamHubState -Token $token
+        if($check.outcome -ne 'success'){throw ('桌面端未启动成功：'+$check.category)}
+        $applied=$true
+      }finally{
+        if($restore -and -not $applied){Set-DreamSkinLocalOpacity -ThemeId $restore.id -Opacity $originalOpacity -StateRoot $script:DreamHubState;Set-DreamSkinDisplayMode -ThemeId $restore.id -Mode $originalMode -StateRoot $script:DreamHubState}
+      }
+      try{Save-AriaPreviousSkin -Previous $previous -AppliedId $request.themeId}catch{}
+
       $state=Read-DreamSkinState -Path (Join-Path $script:DreamHubState 'state.json');$codex=Get-DreamSkinCodexInstallFromState $state;if($codex){[void](Invoke-DreamSkinCodexWindowActivation -Codex $codex)}
       if($prompt){
         $deepLink='codex://new?prompt='+[Uri]::EscapeDataString($prompt)

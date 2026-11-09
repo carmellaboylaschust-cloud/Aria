@@ -46,6 +46,60 @@ function Get-DreamSceneJobs {
     }catch{}
   }|Sort-Object createdAt,id)
 }
+function Get-AriaQueueSettings {
+  param([switch]$ForWrite)
+  $path=Join-Path $script:DreamSceneQueueRoot 'queue-control.json'
+  Assert-DreamSkinNoReparseComponents $path
+  if(-not(Test-Path -LiteralPath $path)){return [pscustomobject]@{schemaVersion=1;paused=$false;priorityIds=@()}}
+  try{
+    if((Get-Item -LiteralPath $path).Length -gt 128KB){throw 'Queue settings too large'}
+    $value=[IO.File]::ReadAllText($path)|ConvertFrom-Json
+    if($value.schemaVersion -ne 1 -or $value.paused -isnot [bool]){throw 'Invalid queue settings'}
+    return [pscustomobject]@{schemaVersion=1;paused=[bool]$value.paused;priorityIds=@($value.priorityIds|Where-Object {$_ -is [string] -and $_ -cmatch '^[a-f0-9]{32}$'}|Select-Object -Unique -First 100)}
+  }catch{
+    if($ForWrite){throw '队列偏好读取失败，请保留原文件后重新检查。'}
+    # Fail closed: a damaged pause preference must not start a recording.
+    return [pscustomobject]@{schemaVersion=1;paused=$true;priorityIds=@();error='队列偏好需要检查，后续任务已暂停'}
+  }
+}
+function Save-AriaQueueSettings {
+  param($Settings)
+  $path=Join-Path $script:DreamSceneQueueRoot 'queue-control.json';Assert-DreamSkinNoReparseComponents $path
+  Write-DreamSkinUtf8FileAtomically -Path $path -Content (($Settings|ConvertTo-Json -Depth 4)+[Environment]::NewLine)
+}
+function Set-AriaQueuePaused {
+  param([bool]$Paused)
+  Initialize-DreamSceneQueue
+  $guard=Enter-DreamSceneMutex 'Queue';if(-not $guard){throw '任务列表正忙，请稍后重试。'}
+  try{$settings=Get-AriaQueueSettings -ForWrite;$settings.paused=$Paused;Save-AriaQueueSettings $settings}finally{Exit-DreamSceneMutex $guard}
+  if(-not $Paused){Start-DreamSceneWorker}
+  return $settings
+}
+function Set-AriaQueuePriority {
+  param([string]$Id)
+  $path=Get-DreamSceneJobPath $Id
+  $guard=Enter-DreamSceneMutex 'Queue';if(-not $guard){throw '任务列表正忙，请稍后重试。'}
+  try{
+    $jobs=@(Get-DreamSceneJobs);$job=@($jobs|Where-Object id -ceq $Id|Select-Object -First 1)
+    if(-not $job.Count -or $job[0].status -ne 'queued' -or (Test-Path -LiteralPath (Get-DreamSceneJobPath $Id 'cancel'))){throw '请选择仍在排队的任务。'}
+    if($job[0].testOnly){throw '请选择皮肤列表中的任务。'}
+    if($job[0].themeId){$null=Get-DreamHubThemeById ([string]$job[0].themeId)}
+    $settings=Get-AriaQueueSettings -ForWrite
+    $eligible=@($jobs|Where-Object {$_.status -eq 'queued'}|ForEach-Object id)
+    $settings.priorityIds=@($Id)+@($settings.priorityIds|Where-Object {$_ -cne $Id -and $_ -in $eligible}|Select-Object -First 99)
+    Save-AriaQueueSettings $settings
+    return $settings
+  }finally{Exit-DreamSceneMutex $guard}
+}
+function Get-AriaNextQueuedJob {
+  param([object[]]$Jobs)
+  $settings=Get-AriaQueueSettings
+  if($settings.paused){return $null}
+  $queued=@($Jobs|Where-Object {$_.status -eq 'queued' -and -not(Test-Path -LiteralPath (Get-DreamSceneJobPath $_.id 'cancel'))}|Sort-Object createdAt,id)
+  foreach($id in $settings.priorityIds){$preferred=@($queued|Where-Object id -ceq $id|Select-Object -First 1);if($preferred.Count){return $preferred[0]}}
+  if($queued.Count){return $queued[0]}
+  return $null
+}
 function Read-DreamSceneProject {
   param([string]$Path)
   $full=[IO.Path]::GetFullPath($Path)

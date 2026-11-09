@@ -1,0 +1,23 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+
+const engine=path.resolve(process.argv[2]||path.join(path.dirname(fileURLToPath(import.meta.url)),'../engine'));
+const listeners=new Map(),observers=[],requests=[],notices=[],nodes=[];
+let media=null,resolveRequest;
+const elements={videoAudioRow:{after(node){nodes.push(node)}},previewMedia:{querySelector(){return media}},preview:{addEventListener(name,fn){listeners.set(name,fn)}}};
+const sandbox={document:{createElement(){return {append(...children){this.children=children}}}},$:id=>elements[id],selected:{id:'clip',kind:'video'},MutationObserver:class{constructor(fn){observers.push(fn)}observe(){}},toast:message=>notices.push(message),send(action,data){requests.push({action,data});return new Promise(resolve=>resolveRequest=resolve)}};
+vm.createContext(sandbox);vm.runInContext(fs.readFileSync(path.join(engine,'hub/video-cover.js'),'utf8'),sandbox);
+const row=nodes[0],[capture,reset]=row.children;
+assert.equal(row.hidden,true);
+media={readyState:2,currentTime:3.75,addEventListener(){}};observers[0]();
+assert.equal(row.hidden,false);assert.equal(capture.disabled,false);
+const task=capture.onclick();assert.equal(capture.disabled,true);assert.equal(reset.disabled,true);
+assert.equal(requests[0].action,'videoCover');assert.equal(requests[0].data.themeId,'clip');assert.equal(requests[0].data.time,3.75);
+resolveRequest({message:'saved'});await task;assert.equal(capture.disabled,false);assert.equal(notices.at(-1),'saved');
+const resetTask=reset.onclick();assert.equal(requests[1].action,'resetVideoCover');assert.equal(Object.hasOwn(requests[1].data,'time'),false);resolveRequest({message:'auto'});await resetTask;
+media.readyState=0;observers[0]();assert.equal(capture.disabled,true);await capture.onclick();assert.equal(requests.length,2);
+media=null;listeners.get('close')();assert.equal(row.hidden,true);
+console.log('Video cover UI passed: video-only controls, current timestamp, automatic reset, duplicate prevention, loading and close handling.');

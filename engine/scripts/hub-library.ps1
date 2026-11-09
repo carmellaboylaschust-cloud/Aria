@@ -25,8 +25,8 @@ function Set-AriaLibraryMeta {
    if($RecordUse){$entry.Value|Add-Member -NotePropertyName lastUsed -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force}
    else{
     if($ids.Count -eq 1 -and $PSBoundParameters.ContainsKey('Name')){if(-not $Name.Trim()){throw '皮肤名称不能为空。'};$entry.Value|Add-Member -NotePropertyName name -NotePropertyValue $Name.Trim() -Force}
-    $entry.Value|Add-Member -NotePropertyName group -NotePropertyValue $Group.Trim() -Force
-    $entry.Value|Add-Member -NotePropertyName tags -NotePropertyValue @($cleanTags) -Force
+    if($PSBoundParameters.ContainsKey('Group')){$entry.Value|Add-Member -NotePropertyName group -NotePropertyValue ([string]$Group).Trim() -Force}
+    if($PSBoundParameters.ContainsKey('Tags')){$entry.Value|Add-Member -NotePropertyName tags -NotePropertyValue @($cleanTags) -Force}
    }
   }
   Write-DreamHubJson (Join-Path $script:DreamHubHome 'library-meta.json') $meta

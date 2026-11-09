@@ -34,7 +34,11 @@ window.chrome?.webview?.addEventListener('message',event=>{
 let toastTimer;function toast(text,action=null,actionLabel='查看皮肤'){$('toast').textContent=text;if(action){const button=document.createElement('button');button.className='toast-link';button.textContent=actionLabel;button.onclick=()=>{action();$('toast').classList.remove('show');};$('toast').append(button);}$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),action?9000:5500);}
 async function act(action,data={}){try{const result=await send(action,data);if(result.message)toast(result.message);return result;}catch(e){toast(e.message);return null;}}
 const names={home:['发现灵感','给今天，换一份心动'],library:['我的皮肤','把喜欢的风景，收进小世界'],workshop:['Steam 创意工坊','下一份心动，正在路上'],wuwa:['鸣潮专区','走进鸣潮的壁纸小世界'],jobs:['转换任务','让心动，慢慢变得清晰'],prompts:['提示词小屋','和灵感一起，开始工作'],settings:['偏好与存储','把你的小世界，照顾妥当']};
+const pageScroll=new Map();
 function go(next){
+ if(!names[next]||next===page)return;
+ if(page==='prompts'&&typeof AriaPrompts!=='undefined'&&AriaPrompts.leave&&AriaPrompts.leave()===false)return;
+ pageScroll.set(page,window.scrollY);
  if(page==='library'&&next!=='library'&&typeof AriaPrivacy!=='undefined')AriaPrivacy.onLeave();
  page=next;document.body.dataset.currentPage=page;document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.id===page));
  document.querySelectorAll('nav button[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
@@ -42,7 +46,7 @@ function go(next){
  if(page==='workshop'){send('workshop',{visible:true}).then(()=>setTimeout(syncBounds,80)).catch(e=>toast(e.message));}else send('workshop',{visible:false}).catch(()=>{});
  if(page==='wuwa'){send('wuwa',{visible:true}).then(()=>setTimeout(syncBounds,80)).catch(e=>toast(e.message));}else send('wuwa',{visible:false}).catch(()=>{});
  if(page==='prompts'){if(typeof AriaPrompts!=='undefined')AriaPrompts.enter();else if(!promptId&&state.prompts.length)editPrompt(state.prompts[0].id);}
- renderJobs();window.scrollTo({top:0,behavior:'instant'});
+ renderJobs();const enteredPage=page;requestAnimationFrame(()=>{if(page===enteredPage)window.scrollTo({top:pageScroll.get(page)||0,behavior:'instant'});});
 }
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>go(b.dataset.page));
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
@@ -66,22 +70,41 @@ function acceptState(data){
 function card(t,manage=false){
  const fav=state.favorites.includes(t.id),active=t.id===state.activeId;
  const art=t.thumbnail||(t.kind==='video'?'media/video-placeholder.svg':t.url);
- const media='<img src="'+esc(art)+'" loading="lazy" alt="">';
- return '<button class="card '+(manage?'manage-card ':'')+(manage&&uninstallSelection.has(t.id)?'chosen':'')+'" data-theme="'+esc(t.id)+'" '+(manage?'aria-pressed="'+uninstallSelection.has(t.id)+'" ':'')+(manage&&active?'disabled aria-label="当前正在使用，请先切换背景"':'')+'><div class="card-cover">'+media+'<span class="tag">'+esc(t.kind==='video'?'视频 · 循环播放':t.kind==='gif'?'动图':'静态壁纸')+'</span><span class="heart">'+(manage?(active?'使用中':(uninstallSelection.has(t.id)?'✓':'○')):(fav?'♥':'♡'))+'</span></div><div class="card-info"><strong>'+esc(t.name)+'</strong><p><span>'+esc(t.sizeMB)+' MB · '+esc(t.dimensions||'本地收藏')+'</span><span class="'+(active?'active-tag':'')+'">'+(active?'✓ 正在陪伴':'预览 ↗')+'</span></p></div></button>';
+ const media='<img src="'+esc(art)+'" loading="lazy" decoding="async" alt="">';
+ const markup='<button class="card '+(manage?'manage-card ':'')+(manage&&uninstallSelection.has(t.id)?'chosen':'')+'" data-theme="'+esc(t.id)+'" '+(manage?'aria-pressed="'+uninstallSelection.has(t.id)+'" ':'')+(manage&&active?'disabled aria-label="当前正在使用，请先切换背景"':'')+'><div class="card-cover">'+media+'<span class="tag">'+esc(t.kind==='video'?'视频 · 循环播放':t.kind==='gif'?'动图':'静态壁纸')+'</span><span class="heart">'+(manage?(active?'使用中':(uninstallSelection.has(t.id)?'✓':'○')):(fav?'♥':'♡'))+'</span></div><div class="card-info"><strong>'+esc(t.name)+'</strong><p><span>'+esc(t.sizeMB)+' MB · '+esc(t.dimensions||'本地收藏')+'</span><span class="'+(active?'active-tag':'')+'">'+(active?'✓ 正在陪伴':'预览 ↗')+'</span></p></div></button>';
+ if(manage)return markup.replace('<button ', '<button data-card-id="'+esc(t.id)+'" ');
+ return '<article class="card library-card" data-card-id="'+esc(t.id)+'">'+markup.replace('class="card ', 'class="card-main ').replace(/<span class="heart">.*?<\/span>/,'')+'<button class="card-favorite" data-favorite="'+esc(t.id)+'" aria-label="'+(fav?'取消收藏':'收藏')+' '+esc(t.name)+'" aria-pressed="'+fav+'">'+(fav?'♥':'♡')+'</button></article>';
 }
-function wireCards(container){container.querySelectorAll('[data-theme]').forEach(el=>el.onclick=()=>{if(container.id==='skinGrid'&&managing){const id=el.dataset.theme;if(id===state.activeId)return;uninstallSelection.has(id)?uninstallSelection.delete(id):uninstallSelection.add(id);renderLibrary();}else openPreview(el.dataset.theme);});}
+function updateCards(container,themes,manage=false){
+ const existing=new Map([...container.children].map(el=>[el.dataset.cardId,el]));
+ const wanted=new Set(themes.map(t=>t.id));for(const [id,el] of existing)if(!wanted.has(id))el.remove();
+ themes.forEach((t,index)=>{
+  const signature=JSON.stringify([t,manage,uninstallSelection.has(t.id),state.favorites.includes(t.id),t.id===state.activeId]);
+  let el=existing.get(t.id);
+  if(!el||el.dataset.renderKey!==signature){const focused=el?.contains(document.activeElement)?document.activeElement:null;const favoriteFocus=focused?.hasAttribute('data-favorite');const template=document.createElement('template');template.innerHTML=card(t,manage);const next=template.content.firstElementChild;next.dataset.renderKey=signature;if(el)el.replaceWith(next);el=next;if(focused){const target=favoriteFocus?el.querySelector('[data-favorite]'):(el.matches('[data-theme]')?el:el.querySelector('[data-theme]'));target?.focus({preventScroll:true});}}
+  if(container.children[index]!==el)container.insertBefore(el,container.children[index]||null);
+ });wireCards(container);
+}
+const favoriteBusy=new Set();
+async function toggleCardFavorite(id){
+ if(favoriteBusy.has(id))return;favoriteBusy.add(id);const wasFavorite=state.favorites.includes(id);
+ try{const r=await act('favorite',{themeId:id});if(r&&[...state.themes,...(state.hiddenThemes||[])].some(t=>t.id===id)){const set=new Set(state.favorites);wasFavorite?set.delete(id):set.add(id);state.favorites=[...set];lastSignature='';renderLibrary();renderRecent();}}
+ finally{favoriteBusy.delete(id);}
+}
+
+function wireCards(container){container.querySelectorAll('[data-favorite]').forEach(b=>b.onclick=()=>toggleCardFavorite(b.dataset.favorite));container.querySelectorAll('[data-theme]').forEach(el=>el.onclick=()=>{if(container.id==='skinGrid'&&managing){const id=el.dataset.theme;if(id===state.activeId)return;uninstallSelection.has(id)?uninstallSelection.delete(id):uninstallSelection.add(id);renderLibrary();}else openPreview(el.dataset.theme);});}
 function libraryPool(){return filter==='hidden'?(state.hiddenUnlocked?state.hiddenThemes||[]:[]):state.themes;}
 function renderLibrary(){
  const text=$('search').value.toLowerCase();
  let all=libraryPool().filter(t=>filter==='hidden'||filter==='all'||filter==='favorite'&&state.favorites.includes(t.id)||filter==='image'&&t.kind==='image'||filter==='animated'&&t.kind!=='image');
  all=typeof AriaLibrary!=='undefined'?AriaLibrary.query(all):all.filter(t=>t.name.toLowerCase().includes(text));
  for(const id of [...uninstallSelection])if(!libraryPool().some(t=>t.id===id)||id===state.activeId)uninstallSelection.delete(id);
- $('skinGrid').innerHTML=all.map(t=>card(t,managing)).join('');$('emptyLibrary').hidden=all.length>0;wireCards($('skinGrid'));
+ updateCards($('skinGrid'),all,managing);$('emptyLibrary').hidden=all.length>0;
  $('manageBar').hidden=!managing;$('manageSkins').textContent=managing?'完成管理':'管理皮肤';$('manageSkins').setAttribute('aria-pressed',String(managing));
  $('selectedCount').textContent='已选择 '+uninstallSelection.size+' 张';$('uninstallSkins').disabled=uninstallBusy||!uninstallSelection.size;if($('batchLibraryEdit'))$('batchLibraryEdit').disabled=uninstallBusy||!uninstallSelection.size;
  if(typeof AriaPrivacy!=='undefined')AriaPrivacy.updateControls();
 }
-function renderRecent(){const recent=[...state.themes].filter(t=>!t.id.startsWith('preset')).sort((a,b)=>(Date.parse(b.lastUsed)||0)-(Date.parse(a.lastUsed)||0)||(Date.parse(b.addedAt)||0)-(Date.parse(a.addedAt)||0)).slice(0,3);$('recentGrid').innerHTML=recent.map(t=>card(t,false)).join('');wireCards($('recentGrid'));}
+function renderRecent(){const recent=[...state.themes].filter(t=>!t.id.startsWith('preset')).sort((a,b)=>(Date.parse(b.lastUsed)||0)-(Date.parse(a.lastUsed)||0)||(Date.parse(b.addedAt)||0)-(Date.parse(a.addedAt)||0)).slice(0,3);updateCards($('recentGrid'),recent,false);}
 function renderCurrent(){
  const t=state.themes.find(x=>x.id===state.activeId);
  $('currentSkin').innerHTML=t?'<img src="'+esc(t.thumbnail||(t.kind==='video'?'media/video-placeholder.svg':t.url))+'" alt=""><div><strong>'+esc(t.name)+'</strong></div>':'<div><strong>还没有选择皮肤</strong><p>去收藏里挑一张吧 ♡</p></div>';
@@ -100,7 +123,9 @@ $('confirmUninstall').onclick=async()=>{
  if(result){const removed=new Set(result.removedIds||[]);state.themes=state.themes.filter(t=>!removed.has(t.id));state.hiddenThemes=(state.hiddenThemes||[]).filter(t=>!removed.has(t.id));state.favorites=state.favorites.filter(id=>!removed.has(id));removed.forEach(id=>uninstallSelection.delete(id));lastSignature='';renderLibrary();renderRecent();renderCurrent();$('libraryCount').textContent=state.themes.length;$('uninstallDialog').close();}}
  finally{uninstallBusy=false;$('confirmUninstall').disabled=false;$('cancelUninstall').disabled=false;renderLibrary();}
 };
-$('search').oninput=renderLibrary;
+let searchTimer;
+$('search').oninput=e=>{clearTimeout(searchTimer);if(!e.isComposing)searchTimer=setTimeout(renderLibrary,100);};
+$('search').addEventListener('compositionend',()=>{clearTimeout(searchTimer);renderLibrary();});
 $('filters').onclick=e=>{const b=e.target.closest('[data-filter]');if(!b)return;filter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(el=>el.classList.toggle('selected',el===b));renderLibrary();};
 function openPreview(id){
  selected=[...state.themes,...(state.hiddenUnlocked?state.hiddenThemes||[]:[])].find(t=>t.id===id);if(!selected)return;

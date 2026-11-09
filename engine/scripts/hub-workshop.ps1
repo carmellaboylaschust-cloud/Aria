@@ -191,21 +191,36 @@ function Invoke-DreamHubWorkshopImport {
 }
 
 
+function Get-AriaWorkshopManifest {
+  param([string]$Path)
+  if(-not $script:AriaWorkshopManifests){$script:AriaWorkshopManifests=@{}}
+  if(-not(Test-Path -LiteralPath $Path)){return $null}
+  Assert-DreamSkinNoReparseComponents $Path
+  $file=Get-Item -LiteralPath $Path
+  if($file.Length -gt 16MB){return $null}
+  $stamp=$file.Length.ToString()+':'+$file.LastWriteTimeUtc.Ticks.ToString()
+  $cached=$script:AriaWorkshopManifests[$Path]
+  if($cached -and $cached.stamp -ceq $stamp -and [DateTime]::UtcNow -lt $cached.expires){return $cached}
+  $text=[IO.File]::ReadAllText($Path)
+  $installed=[regex]::Match($text,'(?s)"WorkshopItemsInstalled"\s*\{(?<body>(?:[^{}]|\{[^{}]*\})*)\}')
+  $details=[regex]::Match($text,'(?s)"WorkshopItemDetails"\s*\{(?<body>(?:[^{}]|\{[^{}]*\})*)\}')
+  $cached=[pscustomobject]@{stamp=$stamp;expires=[DateTime]::UtcNow.AddSeconds(20);installed=$installed.Groups['body'].Value;details=$details.Groups['body'].Value}
+  if($script:AriaWorkshopManifests.Count -ge 16){$script:AriaWorkshopManifests=@{}}
+  $script:AriaWorkshopManifests[$Path]=$cached
+  return $cached
+}
 function Test-DreamHubWorkshopReady {
   param([string]$Root,[string]$Id)
   $workshop=Split-Path (Split-Path $Root)
   $manifest=Join-Path $workshop 'appworkshop_431960.acf'
-  if(-not(Test-Path -LiteralPath $manifest)){return $false}
-  $text=[IO.File]::ReadAllText($manifest)
-  $installed=[regex]::Match($text,'(?s)"WorkshopItemsInstalled"\s*\{(?<body>(?:[^{}]|\{[^{}]*\})*)\}')
-  if(-not $installed.Success){return $false}
-  $item=[regex]::Match($installed.Groups['body'].Value,'(?s)"'+[regex]::Escape($Id)+'"\s*\{(?<body>[^{}]*)\}')
+  $cached=Get-AriaWorkshopManifest $manifest
+  if(-not $cached -or -not $cached.installed){return $false}
+  $item=[regex]::Match($cached.installed,'(?s)"'+[regex]::Escape($Id)+'"\s*\{(?<body>[^{}]*)\}')
   if(-not $item.Success){return $false}
   $current=[regex]::Match($item.Groups['body'].Value,'"manifest"\s+"(\d+)"')
   if(-not $current.Success){return $false}
-  $details=[regex]::Match($text,'(?s)"WorkshopItemDetails"\s*\{(?<body>(?:[^{}]|\{[^{}]*\})*)\}')
-  if($details.Success){
-    $entry=[regex]::Match($details.Groups['body'].Value,'(?s)"'+[regex]::Escape($Id)+'"\s*\{(?<body>[^{}]*)\}')
+  if($cached.details){
+    $entry=[regex]::Match($cached.details,'(?s)"'+[regex]::Escape($Id)+'"\s*\{(?<body>[^{}]*)\}')
     $latest=[regex]::Match($entry.Groups['body'].Value,'"latest_manifest"\s+"(\d+)"')
     if($latest.Success -and $latest.Groups[1].Value -ne $current.Groups[1].Value){return $false}
   }

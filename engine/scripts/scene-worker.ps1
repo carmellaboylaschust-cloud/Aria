@@ -153,12 +153,17 @@ try{
     $guard=Enter-DreamSceneMutex 'Queue'
     if(-not $guard){Start-Sleep -Milliseconds 500;continue}
     $next=$null;$stop=$false
-    Update-DreamHubWaitingJobs
-    Update-DreamHubWorkshopSubscriptions
     try{
-      $pending=@(Get-DreamSceneJobs|Where-Object {$_.status -eq 'queued'})
-      if($pending.Count){$next=$pending[0]}
-      elseif(([DateTime]::UtcNow-$idleSince).TotalSeconds -gt 20 -and -not (Get-DreamHubPolicy).autoImportWorkshop -and -not @(Get-DreamSceneJobs|Where-Object {$_.status -eq 'waiting-download'}).Count){
+      Update-DreamHubWaitingJobs
+      Update-DreamHubWorkshopSubscriptions
+      $jobs=@(Get-DreamSceneJobs)
+      foreach($cancelled in @($jobs|Where-Object {$_.status -eq 'queued' -and (Test-Path -LiteralPath (Get-DreamSceneJobPath $_.id 'cancel'))})){$cancelled.status='cancelled';$cancelled.message='已取消';$cancelled.error='';Save-DreamSceneJob $cancelled}
+      $next=Get-AriaNextQueuedJob -Jobs $jobs
+      if($next){
+        # Claim under the queue mutex. A later pause lets this current task finish.
+        $next.status='starting';$next.message='正在准备任务';$next.workerPid=$PID;$next.workerStartedAt=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o');Save-DreamSceneJob $next
+      }
+      elseif(([DateTime]::UtcNow-$idleSince).TotalSeconds -gt 20 -and -not (Get-DreamHubPolicy).autoImportWorkshop -and -not @($jobs|Where-Object {$_.status -eq 'waiting-download'}).Count){
         # Release under the same lock as enqueueing so no final enqueue is lost.
         Exit-DreamSceneMutex $workerLock;$workerLock=$null;$stop=$true
       }

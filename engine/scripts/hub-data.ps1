@@ -4,6 +4,7 @@ $script:DreamHubState='D:\Aria\runtime'
 $script:DreamHubThemeCache=@{}
 . (Join-Path $PSScriptRoot 'hub-privacy.ps1')
 . (Join-Path $PSScriptRoot 'hub-library.ps1')
+. (Join-Path $PSScriptRoot 'hub-history.ps1')
 function Read-DreamHubJson {
   param([string]$Path,$Default)
   if(Test-Path -LiteralPath $Path){try{$value=Get-Content -LiteralPath $Path -Raw -Encoding UTF8|ConvertFrom-Json;return $value}catch{}}
@@ -107,10 +108,21 @@ function Get-DreamHubData {
     themes=@($themes);hiddenThemes=@($hiddenThemes);hiddenUnlocked=[bool]$unlocked;jobs=@($jobs);heroes=@(Get-DreamHubHeroes)
     prompts=@(Get-DreamHubPrompts);favorites=@($favorites)
     windowSettings=(Read-DreamHubJson (Join-Path $script:DreamHubHome 'window-settings.json') ([pscustomobject]@{remember=$true;width=1370;height=960;state='normal'}))
+    previousAvailable=[bool](Get-AriaPreviousSkin -VisibleIds (@($themes.id)+@($hiddenThemes.id)));queueSettings=(Get-AriaVisibleQueueSettings -Jobs $jobs)
     activeId="$($active.id)";policy=(Get-DreamHubPolicy);freeGB=[Math]::Round(([IO.DriveInfo]::new('D:\')).AvailableFreeSpace/1GB,1)
   }
 }
 . (Join-Path $PSScriptRoot 'hub-thumbnails.ps1')
+
+function Get-AriaVisibleQueueSettings {
+ param([object[]]$Jobs)
+ if(-not $PSBoundParameters.ContainsKey('Jobs')){
+  $hidden=@(Get-AriaHiddenIds);$unlocked=Test-AriaGrant -Role hidden
+  $Jobs=@(Get-DreamSceneJobs|Where-Object {-not $_.testOnly -and ($unlocked -or $_.themeId -notin $hidden)})
+ }
+ $settings=Get-AriaQueueSettings
+ return [pscustomobject]@{paused=[bool]$settings.paused;priorityIds=@($settings.priorityIds|Where-Object {$_ -in @($Jobs.id)})}
+}
 
 
 function Move-DreamHubLegacyProfileWhenClosed {
