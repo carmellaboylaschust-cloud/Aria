@@ -1355,7 +1355,25 @@ export async function verifySession(
       Boolean(result.genericInput?.visible || (homeScope && result.homeSurface?.visible));
     const l0StructurePass = result.scope?.level === 'L0' &&
       result.scope?.baseState === 'settings' && Boolean(result.settingsAnchor?.visible);
-    const structurePass = l0StructurePass || (l1ScopePass &&
+    // A thread overlay can temporarily replace the decorative header. Require
+    // the working shell, an in-bounds composer, and the decoded theme layer.
+    const threadWithoutHeader = result.scope?.level === 'L0' &&
+      result.scope?.baseState === 'thread' &&
+      ['thread', 'overlay'].includes(result.scope?.state) &&
+      Array.isArray(result.scope?.missingL1) && result.scope.missingL1.length === 1 &&
+      result.scope.missingL1[0] === 'header-tint' &&
+      result.shell?.visible && result.sidebar?.visible && result.genericMain?.visible;
+    const threadComposer = result.composer ?? result.genericInput;
+    const background = threadWithoutHeader
+      ? document.getElementById('dream-skin-window-background')?.querySelector('[data-dream-media="content"]')
+      : null;
+    const backgroundDecoded = background?.tagName === 'VIDEO'
+      ? runtime?.mediaDecoded === true && background.readyState >= 2 && !background.error
+      : background?.tagName === 'IMG' && background.complete && background.naturalWidth > 0;
+    const threadStructurePass = Boolean(threadWithoutHeader &&
+      threadComposer?.visible && threadComposer.withinViewport &&
+      backgroundDecoded && box(background)?.visible && !runtime?.mediaError);
+    const structurePass = l0StructurePass || threadStructurePass || (l1ScopePass &&
       (Boolean(result.shell?.visible && result.sidebar?.visible) || genericStructurePass));
     const documentPass = result.documentVisibility === 'visible' && !result.documentHidden;
     const viewportPass = result.viewport.width >= ${MIN_RENDERER_VIEWPORT_WIDTH} &&

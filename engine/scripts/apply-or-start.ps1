@@ -68,12 +68,20 @@ try{
   & (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -SavedThemeDirectory $SavedThemeDirectory -ResultToken $ResultToken
  }
 }catch{
+ $applyError=$_
  if($snapshot){
   try{$null=Restore-DreamSkinActiveThemeSnapshot -SnapshotDirectory $snapshot -StateRoot $stateRoot -ExpectedContentFingerprint $before}catch{Write-Warning ('恢复原背景失败：'+$_.Exception.Message)}
  }
  if($wasPaused){$null=Set-DreamSkinPaused -Paused $true -StateRoot $stateRoot}
- if($ResultToken){Write-DreamSkinStartResult -StateRoot $stateRoot -Token $ResultToken -Outcome failure -Category renderer-verification-failed -AppearanceRecovery not-needed}
- throw
+ if($ResultToken){
+  try{
+   $resultPath=Get-DreamSkinStartResultPath -StateRoot $stateRoot -Token $ResultToken
+   if(-not(Test-Path -LiteralPath $resultPath)){
+    Write-DreamSkinStartResult -StateRoot $stateRoot -Token $ResultToken -Outcome failure -Category renderer-verification-failed -AppearanceRecovery not-needed
+   }
+  }catch{Write-Warning '无法保存换肤结果，以下是原始错误。'}
+ }
+ throw $applyError
 }finally{
  if($snapshot -and (Test-Path -LiteralPath $snapshot)){Remove-DreamSkinManagedDirectoryVerified -Path $snapshot -Root $stateRoot}
  if($lock){Exit-DreamSkinOperationLock -Mutex $lock}
