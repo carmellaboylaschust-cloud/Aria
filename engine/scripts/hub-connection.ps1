@@ -24,7 +24,7 @@ function Update-AriaPendingConnection {
  $script:AriaConnectPending=$null;$script:AriaConnectionDue=[DateTime]::MinValue
  $data=$script:HubLatestData;$theme=@($data.themes|Where-Object id -ceq $data.activeId|Select-Object -First 1);if(-not $theme.Count){$theme=@($data.themes|Select-Object -First 1)}
  if(-not $theme.Count){Send-HubMessage @{type='notice';message='请先选择一张普通皮肤，再启动桌面端。'};return}
- $script:LaunchInFlight=$true;Start-HubAction ([pscustomobject]@{id=0;action='launch';themeId=$theme[0].id;prompt=''})
+ Start-HubAction ([pscustomobject]@{id=0;action='launch';themeId=$theme[0].id;prompt=''})
  Send-HubMessage @{type='launchProgress';message='已检测到桌面端退出，正在接续带背景启动。'}
 }
 
@@ -39,8 +39,7 @@ function Start-AriaDesktopFromHub {
  $data=$script:HubLatestData;if(-not $data){$script:NextData=[DateTime]::MinValue;throw '正在准备皮肤库，请稍后再试。'};$theme=@($data.themes|Where-Object id -ceq $data.activeId|Select-Object -First 1)
  if(-not $theme.Count){$theme=@($data.themes|Select-Object -First 1)}
  if(-not $theme.Count){throw '请先在“我的皮肤”添加一张普通背景。'}
- $script:LaunchInFlight=$true
- try{Start-HubAction ([pscustomobject]@{id=0;action='launch';themeId=$theme[0].id;prompt=''})}catch{$script:LaunchInFlight=$false;throw}
+ Start-HubAction ([pscustomobject]@{id=0;action='launch';themeId=$theme[0].id;prompt=''})
  Send-HubMessage @{type='launchProgress';message='正在打开桌面端并连接换肤服务，可以继续浏览。'}
  return [pscustomobject]@{waitingForExit=$false;message='正在打开桌面端并连接换肤服务'}
 }

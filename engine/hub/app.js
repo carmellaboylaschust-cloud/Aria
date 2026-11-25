@@ -60,7 +60,7 @@ function acceptState(data){
  $('libraryCount').textContent=state.themes.length;
  const busy=state.jobs.filter(j=>['queued','starting','recording','finalizing','waiting-download'].includes(j.status));
  $('jobCount').textContent=busy.length;$('queueSummary').textContent=busy.length?'有 '+busy.length+' 个任务正在准备你的背景':'暂无进行中的任务';
- $('freeSpace').textContent='剩余 '+state.freeGB+' GB · D 盘';$('appStatus').textContent=launchBusy?'正在启动桌面端…':'本地皮肤库已连接 · '+state.themes.length+' 张背景';
+ $('freeSpace').textContent='剩余 '+state.freeGB+' GB · D 盘';$('appStatus').textContent=launchBusy?'正在应用背景…':'本地皮肤库已连接 · '+state.themes.length+' 张背景';
  if(first||JSON.stringify(state.heroes)!==lastHeroes){setupHeroes();}
  const signature=JSON.stringify([state.hiddenThemes,state.hiddenUnlocked])+JSON.stringify(state.themes)+state.activeId+state.favorites.join('|');
  if(signature!==lastSignature){lastSignature=signature;renderLibrary();renderRecent();renderCurrent();}
@@ -145,11 +145,17 @@ $('favoriteSelected').onclick=async()=>{if(!selected)return;await act('favorite'
 let opacityTimer;
 $('opacity').oninput=()=>{$('opacityValue').textContent=$('opacity').value+'%';clearTimeout(opacityTimer);const id=selected?.id,value=Number($('opacity').value);opacityTimer=setTimeout(()=>{if(id)act('opacity',{themeId:id,value});},180);};
 $('resetOpacity').onclick=()=>{if(selected){clearTimeout(opacityTimer);$('opacity').value=30;$('opacityValue').textContent='30%';act('opacity',{themeId:selected.id,value:null});}};
-function setLaunchBusy(value){$('launch').disabled=value;$('desktopConnect').disabled=value;$('applySelected').disabled=value;$('startPrompt').disabled=value;if(typeof AriaConnection!=='undefined')AriaConnection.render(state.desktopConnection);icons();}
+function setLaunchBusy(value){
+ for(const id of ['launch','desktopConnect','applySelected','startPrompt'])$(id).disabled=value;
+ $('applySelected').textContent=value?'正在应用背景…':'应用到桌面端';
+ $('appStatus').textContent=value?'正在应用背景…':'本地皮肤库已连接 · '+state.themes.length+' 张背景';
+ if(typeof AriaConnection!=='undefined')AriaConnection.render(state.desktopConnection);
+ icons();
+}
 async function start(themeId,prompt='',options={}){
  if(launchBusy)return;launchBusy=true;setLaunchBusy(true);
  const result=await act('launch',{themeId:themeId||state.activeId,prompt,...options});
- if(!result){launchBusy=false;setLaunchBusy(false);}else{toast('正在准备桌面端…');if($('preview').open)closePreview();}
+ if(!result){launchBusy=false;setLaunchBusy(false);}else if(launchBusy){toast('正在应用背景…');if($('preview').open&&selected?.id===themeId)closePreview();}
 }
 async function openDesktop(){
  if(launchBusy)return;launchBusy=true;setLaunchBusy(true);

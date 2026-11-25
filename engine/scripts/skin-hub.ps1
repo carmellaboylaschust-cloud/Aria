@@ -104,6 +104,7 @@ function Get-AriaSnapshotWorker {
 }
 function Start-HubAction {
  param($Request)
+ if($Request.action -eq 'launch' -and $script:LaunchInFlight){throw '正在应用上一项，请稍候。'}
  $key=[guid]::NewGuid().ToString('N');$persistent=$Request.action -in @('launch','snapshot')
  if($Request.action -eq 'launch'){$process=Get-AriaLaunchWorker;$key+='.'+$script:AriaLaunchQueueToken+'.launch'}
  elseif($Request.action -eq 'snapshot'){$process=Get-AriaSnapshotWorker;$key+='.'+$script:AriaSnapshotQueueToken+'.snapshot'}
@@ -121,6 +122,15 @@ function Start-HubAction {
   $process=[Diagnostics.Process]::Start($info)
  }
  $script:HubPending.Add([pscustomobject]@{Process=$process;Persistent=$persistent;InputPath=$inputFile;Path=$outputFile;Action=$Request.action;Id=$Request.id;Started=[DateTime]::UtcNow;SnapshotToken=if($Request.action -eq 'snapshot'){$script:AriaHiddenToken}else{''};Generation=$script:HubGeneration})
+ if($Request.action -eq 'launch'){$script:LaunchInFlight=$true}
+}
+
+function Test-AriaMissingLaunchResult {
+ param($Pending)
+ if($Pending.Action -ne 'launch'){return $false}
+ # The worker claims the request by renaming it, then publishes the reply before releasing the claim.
+ $claim=$Pending.InputPath.Replace('.request.json','.processing.json')
+ return -not ([IO.File]::Exists($Pending.InputPath) -or [IO.File]::Exists($claim) -or [IO.File]::Exists($Pending.Path))
 }
 
 function Open-HubExternal {
@@ -293,8 +303,6 @@ function Invoke-HubMessage {
       try{if($dialog.ShowDialog($script:HubForm) -eq 'OK'){Start-HubAction ([pscustomobject]@{id=$Request.id;action='addScene';path=$dialog.FileName;seconds=$Request.seconds});$background=$true}}finally{$dialog.Dispose()}
     }
     'launch' {
-      if($script:LaunchInFlight){throw '桌面端正在启动，请稍等。'}
-      $script:LaunchInFlight=$true
       Start-HubAction $Request;Send-HubMessage @{type='launchProgress';message='正在准备皮肤与桌面端，可以继续浏览。'}
     }
     {$_ -in @('record','importHero','cancelJob','retryJob','uninstallThemes','workshopBatch','saveLibraryMeta','videoCover','resetVideoCover','queuePause','queuePriority')} {Start-HubAction $Request;$background=$true}
@@ -373,6 +381,9 @@ $script:HubTimer.add_Tick({
       if(Reset-AriaStalledSnapshot $pending){continue}
       if(Test-Path -LiteralPath $pending.Path){
         $result=Read-DreamHubJson $pending.Path $null
+        if($pending.Action -eq 'launch' -and ($result.ok -isnot [bool] -or $result.id -ne $pending.Id)){
+          $result=@{ok=$false;error='换肤结果无法确认，可以重新应用。'}
+        }
         if($result){
           if(-not $result.ok -and $result.details -and $pending.Action -ne 'snapshot'){Write-HubLog ('Background action '+$pending.Action+': '+$result.details)}
           if($pending.Action -eq 'snapshot'){if($result.ok){try{Publish-AriaSnapshot -Result $result -Pending $pending}catch{Write-AriaSnapshotError $_.Exception.Message;$script:NextData=[DateTime]::MinValue}}else{Write-AriaSnapshotError ([string]$result.error)}}
@@ -384,8 +395,8 @@ $script:HubTimer.add_Tick({
           if($result.ok -and $pending.Action -in @('addMedia','importHero','saveWuwaImage','importWuwaDownload','restoreBackup')){$script:LastThumbCheck=[DateTime]::MinValue}
           [IO.File]::Delete($pending.Path);if(-not $pending.Persistent){$pending.Process.Dispose()};[void]$script:HubPending.Remove($pending)
         }
-      }elseif($pending.Process.HasExited){
-        $message='后台操作意外结束，请重试。'
+      }elseif($pending.Process.HasExited -or (Test-AriaMissingLaunchResult $pending)){
+        $message=if($pending.Action -eq 'launch'){'换肤结果无法确认，可以重新应用。'}else{'后台操作意外结束，请重试。'}
         if($pending.Action -eq 'snapshot'){Write-AriaSnapshotError 'Snapshot worker exited unexpectedly.'}
         if($pending.Action -eq 'launch'){$script:LaunchInFlight=$false;Send-HubMessage @{type='launchDone';message=$message}}elseif($pending.Id -gt 0){Send-HubMessage @{id=$pending.Id;ok=$false;error=$message}}
         if($pending.Persistent){if(Test-Path -LiteralPath $pending.InputPath){Assert-DreamSkinNoReparseComponents $pending.InputPath;[IO.File]::Delete($pending.InputPath)}}else{$pending.Process.Dispose()};[void]$script:HubPending.Remove($pending)

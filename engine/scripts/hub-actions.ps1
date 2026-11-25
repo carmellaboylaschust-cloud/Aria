@@ -92,7 +92,8 @@ try{
       $applied=$false
       try{
         if($restore){Set-DreamSkinLocalOpacity -ThemeId $restore.id -Opacity $restore.opacity -StateRoot $script:DreamHubState;Set-DreamSkinDisplayMode -ThemeId $restore.id -Mode $restore.displayMode -StateRoot $script:DreamHubState}
-        . (Join-Path $PSScriptRoot 'apply-or-start.ps1') -SavedThemeDirectory $loaded.Directory -ResultToken $token
+        # Keep the launcher's own result path separate from this worker's response path.
+        & (Join-Path $PSScriptRoot 'apply-or-start.ps1') -SavedThemeDirectory $loaded.Directory -ResultToken $token
         $check=Read-DreamSkinStartResult -StateRoot $script:DreamHubState -Token $token
         if($check.outcome -ne 'success'){throw ('桌面端未启动成功：'+$check.category)}
         $applied=$true

@@ -42,7 +42,6 @@ function Invoke-AriaPrivacyMode {
  $safe=@($data.themes|Where-Object id -CEQ $settings.safeThemeId|Select-Object -First 1)
  if(-not $safe.Count){$safe=@($data.themes|Sort-Object lastUsed -Descending|Select-Object -First 1)}
  if(-not $safe.Count){return '隐藏列表已锁定，但没有可用的普通背景，请先添加一张。'}
- $script:LaunchInFlight=$true
  Start-HubAction ([pscustomobject]@{id=0;action='launch';themeId=$safe[0].id;prompt='';privacyMode=$true})
  Send-HubMessage @{type='launchProgress';message='隐藏列表已锁定，正在替换为普通背景。'}
  return '隐藏列表已锁定，正在换回普通背景。'
